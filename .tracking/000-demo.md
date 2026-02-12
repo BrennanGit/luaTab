@@ -66,6 +66,9 @@
 * {Question needing clarification}
 * {Question needing clarification}
 
+## Follow-ons (Chained Tasks)
+- {#NNN} — {why created} — Status: planned|in-progress — Decision: executed-now|queued
+
 ## Risks
 
 * {Risk} — Mitigation: {what you’ll do}

@@ -5,16 +5,21 @@
 
 ---
 
-## Active Task
+## Active Task Stack
 
-- Current: #NNN-short-slug
-  - Status: planned | in-progress | blocked
-  - Owner: {agent/user}
+- Top (current):
+  - none
+
+- Stack:
+  - (empty)
 
 > Rules:
-> - Only one active task at a time.
-> - If no task is active, set Current: none.
-> - Must be updated when switching tasks.
+> - First entry is current active task.
+> - Most recent tasks at top.
+> - Only top task may be edited.
+> - PUSH for prerequisite tasks.
+> - POP when completed or blocked.
+> - Do not pause at push/pop boundaries.
 
 ---
 
@@ -28,7 +33,7 @@ Format:
   Stability: experimental | beta | stable
   Files: path1, path2
   Functions: f1(), f2()
-  Related: #MMM, #PPP
+  Related: #MMM
 -->
 
 ---
@@ -42,44 +47,35 @@ Format:
   Functions: n/a
   Related: none
 
-- [in-progress] 012-tab-layout — Joined tab system layout (2026-02-13) — Owner: agent
+- [in-progress] 012-layout-refactor — Joined tab layout (2026-02-13) — Owner: agent
   Type: feature
   Stability: experimental
-  Files: TabHUD.lua, lib/layout.lua, lib/render.lua
+  Files: TabHUD.lua, lib/layout.lua
   Functions: computeSystems(), renderSystem()
-  Related: #011-solver-refactor
+  Related: #010-initial-layout
 
 ---
 
 ## Status Legend
 
 - planned — task defined but not started
-- in-progress — active implementation
-- blocked — waiting for clarification or dependency
+- in-progress — currently executing (may be on stack)
+- blocked — awaiting clarification/input
 - done — fully implemented and verified
-
----
-
-## Conventions
-
-- Update "Last updated" timestamp whenever meta.md changes.
-- Keep entries chronological (do not reorder old tasks).
-- Do not remove completed tasks.
-- Cross-reference related tasks by ID.
-- If a task replaces functionality from another task, note it explicitly.
 
 ---
 
 ## Maintenance Checklist (Agent Reminder)
 
-Before starting work:
+Before working:
 - Read this file.
-- Identify Active Task.
-- Confirm task status matches reality.
-- If switching tasks, update Active Task section.
+- Identify top of stack.
+- Confirm status matches reality.
 
-After completing work:
-- Update task status.
-- Update Files/Functions list if needed.
-- Clear Active Task (or switch to next).
+After working:
 - Update Last updated timestamp.
+- Update Files/Functions map.
+- POP if complete.
+- Ensure stack reflects reality.
+````
+

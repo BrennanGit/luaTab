@@ -13,48 +13,75 @@ This protocol ensures:
 - Context limits are managed safely.
 - Architectural intent is preserved.
 - Refactors do not silently break invariants.
+- Maximum meaningful progress per request.
 
-This system is project-agnostic and may be reused across repositories.
+This system is project-agnostic and reusable across repositories.
 
 ---
 
 # Core Principles
 
 1. Plan before editing.
-2. Log every meaningful change. If the request would change how a future agent understands the system, it requires a task entry.
+2. Log every meaningful change.
 3. Verify before ticking.
 4. Keep recaps short and structured.
 5. Never rely on memory — rely on `.tracking/`.
-6. One active task at a time unless explicitly stated.
+6. Only one task is active at a time: the top of the Active Task Stack.
+7. Default behavior: execute end-to-end without pausing between subtasks.
+8. If the request would change how a future agent understands the system, it requires a task entry.
+
+---
+
+# Intent Envelope (Default: Keep Going)
+
+Agents should maximize progress per request.
+
+If work remains consistent with:
+- the user's original intent,
+- the project brief,
+- known architectural constraints,
+
+then continue executing without pausing — even if it requires:
+- creating prerequisite tasks,
+- fixing bugs discovered during execution,
+- refactoring small subsystems,
+- adding tests or scaffolding.
+
+Only pause when a Stop Condition is met.
 
 ---
 
 # Folder Conventions
 
-- Tracking folder: `.tracking/` (create if missing)
+- Tracking folder: `.tracking/`
 - Task file: `.tracking/NNN-short-slug.md`
 - Meta index: `.tracking/meta.md`
 - Optional system-level documentation: `.tracking/architecture.md`
 
-If `.tracking/architecture.md` exists, read it before making structural changes.
+If `.tracking/architecture.md` exists, read it before structural changes.
 
 ---
 
-# Active Task Rule
+# Active Task Stack
 
 `.tracking/meta.md` must contain:
 
 ```md
-## Active Task
+## Active Task Stack
 
-Current: #NNN-short-slug
-```
-
+- Top (current):
+  - #NNN-short-slug — Status: in-progress — Owner: agent
+- Stack:
+  - #MMM-short-slug — Status: in-progress — Owner: agent
+  - #PPP-short-slug — Status: in-progress — Owner: agent
+````
 
 Rules:
-- Only one task may be marked as Current.
-- If a task is in-progress, it must be listed as Current.
-- Switching tasks requires updating `meta.md`.
+
+* The first entry under “Top” is the currently active task.
+* Stack order is most-recent first.
+* Only the top task may be edited.
+* Tasks may be PUSHED or POPPED during execution.
 
 ---
 
@@ -63,72 +90,47 @@ Rules:
 On any non-trivial request (multi-file changes, logic changes, API changes, structural refactors):
 
 You MUST:
+
 1. Create a new task file before editing code.
-2. Add it to `meta.md`.
+2. Add it to `.tracking/meta.md`.
 3. Set status = planned.
-4. Set it as Active Task.
+4. PUSH it to the Active Task Stack.
+5. Set status = in-progress.
+6. Begin execution.
 
 Exceptions:
-- Pure documentation edits.
-- Minor typo fixes.
-- Small isolated formatting changes.
+
+* Pure documentation edits.
+* Minor typo fixes.
+* Small isolated formatting changes.
 
 If unsure → create a task.
 
 ---
 
-# Task File Requirements
-
-Each task file MUST include:
-
-- ID
-- Created timestamp (UTC)
-- Status: planned | in-progress | blocked | done
-- Type: feature | refactor | bugfix | research | docs | infra
-- Stability: experimental | beta | stable
-- Owner
-- Related task IDs
-- Summary
-- Requirements
-- Acceptance Criteria
-- Out of Scope
-- Plan (with checkboxes)
-- Execution Log
-- Decisions
-- Open Questions
-- Risks
-- Artifacts Changed
-- Final Summary
-
-Optional but recommended:
-- Design Contracts (system invariants)
-- Regression Checklist
-- Snippet Cache (≤100 lines total)
-
----
-
 # Execution Workflow
 
-## 1. Create Task
+## 1. Create Task (Initial or Detour)
 
-- Determine next NNN (zero-padded).
-- Create `.tracking/NNN-short-slug.md` from template.
-- Add entry to `.tracking/meta.md`.
-- Set status = planned.
-- Set as Active Task.
+* Determine next NNN (zero-padded).
+* Create `.tracking/NNN-short-slug.md` from template.
+* Add entry to `.tracking/meta.md`.
+* PUSH to Active Task Stack.
+* Set status = in-progress.
 
 ---
 
 ## 2. Plan
 
-Break work into checklist subtasks:
+Break work into checklist subtasks.
 
 Each subtask must:
-- Reference expected files.
-- Reference expected functions.
-- Include verification steps.
 
-Do not begin editing code until Plan exists.
+* Reference files.
+* Reference functions.
+* Include verification steps.
+
+Do not edit code until Plan exists.
 
 ---
 
@@ -136,28 +138,92 @@ Do not begin editing code until Plan exists.
 
 For each subtask:
 
-- Make change.
-- Log timestamped entry in Execution Log:
-  - What changed
-  - Files touched
-  - Why
-- Verify via tests/manual check.
-- Only then tick checkbox.
+* Make the change.
+* Log timestamped entry in Execution Log.
+* Verify.
+* Tick checkbox.
+* Immediately proceed to next subtask.
 
-If plan changes:
-- Update Plan section.
-- Update meta.md if scope shifts.
+### Continuation Rule (Do Not Pause)
+
+After completing a subtask, immediately continue to the next subtask.
+
+Do not pause for confirmation unless a Stop Condition is met.
 
 ---
 
-## 4. Context Discipline (Every Turn)
+# Auto-Chaining (Prerequisite Handling)
+
+If execution is blocked by a bug or missing capability:
+
+1. Create a new task for the prerequisite.
+2. PUSH it onto the Active Task Stack.
+3. Execute it immediately if:
+
+   * It is required to complete the original intent.
+   * It falls within project specification.
+   * It does not require a high-impact product decision.
+4. POP when verified complete.
+5. Resume previous task automatically.
+
+Do not stop at PUSH or POP boundaries.
+
+---
+
+# Active Task Stack Operations
+
+## PUSH
+
+Use when:
+
+* A prerequisite task is required.
+* A bug fix is needed to continue.
+* A refactor is required to unblock progress.
+
+Steps:
+
+1. Create task.
+2. Add to meta.md.
+3. Add to top of stack.
+4. Begin execution immediately.
+
+## POP
+
+Use when:
+
+* Top task is completed or blocked.
+
+Steps:
+
+1. Update status in task file and meta.md.
+2. Remove it from top of stack.
+3. Resume next task on stack automatically.
+
+---
+
+# Stop Conditions (Only Reasons To Pause)
+
+The agent must continue executing until the stack unwinds and tasks are complete unless:
+
+1. User decision required (meaningful tradeoffs not covered by spec).
+2. Missing user input (files, credentials, environment, approval).
+3. Unbounded ambiguity (risk of wasted work).
+4. Verification impossible (high regression risk).
+5. User explicitly asked to pause.
+
+Discovering a bug elsewhere is NOT a stop condition if it can be fixed within project scope.
+
+---
+
+# Context Discipline (Every Turn)
 
 At start of each session:
 
 1. Read:
-   - `.tracking/meta.md`
-   - Active task file
-   - `.tracking/architecture.md` (if exists)
+
+   * `.tracking/meta.md`
+   * Top task file
+   * `.tracking/architecture.md` (if exists)
 
 2. Append to Execution Log:
 
@@ -170,123 +236,58 @@ Next Subtask:
 Known Risks:
 ```
 
+3. Include a 3–5 bullet recap in chat.
 
-3. In chat, include a 3–5 bullet recap.
-
-Keep recaps concise. No rambling.
-
----
-
-## 5. Refactoring Safeguards
-
-Before deleting or replacing code:
-
-- Confirm it is not referenced in:
-  - Active task Snippet Cache
-  - Any unfinished task in meta.md
-- If replacing logic, document the reason in Decisions.
-
-If architectural intent changes:
-- Create a new task (do not silently expand scope).
+Keep concise.
 
 ---
 
-## 6. Blocked State
+# Cleanup
 
-If blocked for more than two turns:
+Before marking a task complete:
 
-- Set Status = blocked.
-- Add explicit Open Questions.
-- Do not guess requirements.
-- Wait for clarification.
+* Remove obsolete code.
+* Remove temporary scaffolding.
+* Update README if behavior changed.
+* Update `.tracking/meta.md`:
 
----
-
-## 7. Cleanup
-
-Before marking task complete:
-
-- Remove obsolete code and references.
-- Move test files to correct location.
-- Remove temporary scaffolding.
-- Update README.md if behavior changed.
-- Update `meta.md`:
-  - Status
-  - Files affected
-  - Function map
-  - Cross-references
+  * Status
+  * Files affected
+  * Functions affected
+* POP from stack.
 
 ---
 
-## 8. Completion
+# Completion
 
-When finished:
+When the stack is empty:
 
-- Set Status = done.
-- Clear Active Task pointer.
-- Add Final Summary.
-- Note follow-up tasks explicitly.
-
----
-
-# Meta Index Requirements (`meta.md`)
-
-Each task entry must include:
-
-```md
-[status] NNN-short-slug — Title (YYYY-MM-DD) — Owner
-Type: feature | refactor | bugfix | research | docs | infra
-Stability: experimental | beta | stable
-Files: path1, path2
-Functions: f1(), f2()
-Related: #MMM
-```
-
-And:
-
-```md
-## Active Task
-Current: #NNN-short-slug
-```
-
-
----
-
-# Optional: architecture.md
-
-If present, `architecture.md` should describe:
-
-- System modules
-- Data flow
-- Key invariants
-- Performance constraints
-
-It is advisory, not mandatory.
-If missing, do not create unless architectural complexity justifies it.
+* Confirm original user intent satisfied.
+* Ensure all tasks are done or blocked.
+* Add final summaries.
 
 ---
 
 # Safeguards
 
-- If numbering collision occurs → choose next available.
-- If required file missing → create minimal stub.
-- If user edited files between sessions → re-read before modifying.
-- Snippet Cache must not exceed 100 lines.
+* If numbering collision occurs → choose next available.
+* If required file missing → create minimal stub.
+* If user edited files between sessions → re-read before modifying.
+* Snippet Cache ≤100 lines.
+* Do not delete code without checking active tasks.
 
 ---
 
 # Trigger Phrase
 
-If a prompt contains `#plan`, the full protocol MUST be followed.
+If a prompt contains `#plan`, full protocol must be followed.
 
 ---
 
 # Self-Reminder
 
-At the top of every task file:
-
-- Read meta.md first; update it last.
-- Plan before editing; verify before ticking.
-- Log every change; keep recaps short.
-- Reference prior tasks; avoid duplicate work.
-- Remove obsolete code.
+* Read meta.md first; update it last.
+* Plan → execute → verify → pop.
+* Log every change.
+* Continue until complete or blocked.
+* Do not pause unnecessarily.
