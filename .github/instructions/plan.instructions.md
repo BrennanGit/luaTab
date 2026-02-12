@@ -106,6 +106,28 @@ Exceptions:
 
 If unsure → create a task.
 
+## Task Granularity (Avoid Task Explosion)
+
+Default: One task should cover one coherent deliverable.
+
+Agents should NOT create a new task for each planned subtask. Keep subtasks inside the current task unless:
+- A prerequisite bug/fix is blocking progress and has its own acceptance criteria, OR
+- The work is truly out-of-scope for the current deliverable, OR
+- The change is large enough to be independently verifiable and shippable, OR
+- The user asked for separate tasks.
+
+Rule of thumb:
+- If the new task would take <30 minutes or touches <3 files, keep it as a subtask in the current task.
+
+### Plan-only Tasks
+If the user explicitly asks for a plan, create a docs/research task and stop after delivering the plan.
+Implementation should be a separate task only when the user requests it.
+
+### Detours: Subtask vs New Task
+If a prerequisite fix is small and local, add it as a subtask in the current task.
+If it requires changes across multiple modules, has distinct acceptance criteria, or is reusable beyond the current work, create a detour task and PUSH it.
+
+
 ---
 
 # Execution Workflow
