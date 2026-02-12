@@ -1,11 +1,16 @@
 -- luaTab.lua
--- Minimal GUI scaffold: shows current measure number (bar index)
+-- MVP main loop
 
-local Util   = dofile(reaper.GetResourcePath() .. "/Scripts/luaTab/lib/util.lua")
-local Style  = dofile(reaper.GetResourcePath() .. "/Scripts/luaTab/lib/style.lua")
-local Config = dofile(reaper.GetResourcePath() .. "/Scripts/luaTab/lib/config.lua")
+local basePath = reaper.GetResourcePath() .. "/Scripts/luaTab"
+local Util = dofile(basePath .. "/lib/util.lua")
+local Style = dofile(basePath .. "/lib/style.lua")
+local Config = dofile(basePath .. "/lib/config.lua")
+local Timeline = dofile(basePath .. "/lib/timeline.lua")
+local Layout = dofile(basePath .. "/lib/layout.lua")
+local Midi = dofile(basePath .. "/lib/midi.lua")
+local Frets = dofile(basePath .. "/lib/frets.lua")
+local Render = dofile(basePath .. "/lib/render.lua")
 
--- ---- Safety check: ReaImGui available?
 if not reaper.ImGui_CreateContext then
   reaper.ShowMessageBox(
     "ReaImGui is not available.\n\nInstall/enable ReaImGui (via ReaPack or REAPER package manager) and restart REAPER.",
@@ -17,54 +22,64 @@ end
 
 local ctx = reaper.ImGui_CreateContext("luaTab")
 local col = Style.BuildColors(ctx)
-
 local cfg = Config.load()
 
--- Cached “tuple discovery”
-local last_time_map_dump = ""
+local cache = {
+  take = nil,
+  barIndex = nil,
+  rangeStart = nil,
+  rangeEnd = nil,
+  eventsByBar = {},
+}
 
--- Decide which cursor to follow
-local function get_follow_time()
-  local playState = reaper.GetPlayState()
-  local isPlaying = (playState & 1) == 1
-  if isPlaying and cfg.followPlay then
-    return reaper.GetPlayPosition()
+local function build_events_by_bar(take, bars, epsilonSec)
+  local eventsByBar = {}
+  if not take or #bars == 0 then
+    return eventsByBar
   end
-  if cfg.followEditWhenStopped then
-    return reaper.GetCursorPosition()
+
+  local rangeStart = bars[1].t0
+  local rangeEnd = bars[#bars].t1
+  local notes = Midi.extract_notes(take, rangeStart, rangeEnd)
+  local events = Midi.group_events(notes, epsilonSec)
+
+  local barIdx = 1
+  for _, event in ipairs(events) do
+    while barIdx <= #bars and event.t >= bars[barIdx].t1 do
+      barIdx = barIdx + 1
+    end
+    local bar = bars[barIdx]
+    if bar and event.t >= bar.t0 and event.t < bar.t1 then
+      eventsByBar[bar.idx] = eventsByBar[bar.idx] or {}
+      eventsByBar[bar.idx][#eventsByBar[bar.idx] + 1] = event
+    end
   end
-  return reaper.GetPlayPosition()
+
+  return eventsByBar, rangeStart, rangeEnd
 end
 
--- Extract measure index from REAPER time map.
--- IMPORTANT: TimeMap2_timeToBeats return tuple can vary.
--- Strategy:
---   - call it
---   - treat the *second* return as "measure position" if present
---   - measure index = floor(measurepos)
--- If this is wrong on your build, use the "Dump returns" button and adjust.
-local function get_measure_index_at_time(t)
-  local a,b,c,d,e,f,g = reaper.TimeMap2_timeToBeats(0, t)
-  -- Common case: b is measure position (0-based measure index as float)
-  local measpos = b
-  if type(measpos) ~= "number" then
-    return nil, a,b,c,d,e,f,g
+local function get_cached_events(take, bars, currentBarIdx, epsilonSec)
+  local rangeStart = bars[1] and bars[1].t0 or nil
+  local rangeEnd = bars[#bars] and bars[#bars].t1 or nil
+  if cache.take == take
+    and cache.barIndex == currentBarIdx
+    and cache.rangeStart == rangeStart
+    and cache.rangeEnd == rangeEnd then
+    return cache.eventsByBar
   end
-  return math.floor(measpos), a,b,c,d,e,f,g
-end
 
--- Optional: get time signature at time
-local function get_timesig_at_time(t)
-  local num, denom = reaper.TimeMap_GetTimeSigAtTime(0, t)
-  return num, denom
+  local eventsByBar, newStart, newEnd = build_events_by_bar(take, bars, epsilonSec)
+  cache.take = take
+  cache.barIndex = currentBarIdx
+  cache.rangeStart = newStart
+  cache.rangeEnd = newEnd
+  cache.eventsByBar = eventsByBar
+  return eventsByBar
 end
 
 local function loop()
-  local visible, open = reaper.ImGui_Begin(ctx, "luaTab (Scaffold)", true,
-    reaper.ImGui_WindowFlags_AlwaysAutoResize() -- remove later; keeps MVP tidy
-  )
+  local visible, open = reaper.ImGui_Begin(ctx, "luaTab", true)
   if visible then
-    -- Controls
     local changed
     changed, cfg.followPlay = reaper.ImGui_Checkbox(ctx, "Follow play cursor", cfg.followPlay)
     if changed then Config.save(cfg) end
@@ -80,36 +95,45 @@ local function loop()
 
     reaper.ImGui_Separator(ctx)
 
-    -- Read cursor time + measure
-    local t = get_follow_time()
-    local measIdx, a,b,c,d,e,f,g = get_measure_index_at_time(t)
-    local num, denom = get_timesig_at_time(t)
-
-    reaper.ImGui_Text(ctx, string.format("Time: %.3f s", t))
-    reaper.ImGui_Text(ctx, string.format("Time sig at cursor: %s/%s", tostring(num), tostring(denom)))
-
-    if measIdx ~= nil then
-      -- Display measure index as 1-based for humans
-      reaper.ImGui_Text(ctx, string.format("Measure index: %d (display %d)", measIdx, measIdx + 1))
-    else
-      reaper.ImGui_Text(ctx, "Measure index: (could not parse TimeMap2_timeToBeats return tuple)")
+    local t = Timeline.get_cursor_time(cfg)
+    local bars, currentBarIdx = Timeline.build_bars(t, cfg.prevBars, cfg.nextBars, cfg.showFirstTimeSigInSystemGutter)
+    reaper.ImGui_Text(ctx, string.format("Cursor: %.3f s", t))
+    if currentBarIdx then
+      reaper.ImGui_Text(ctx, string.format("Bar index: %d", currentBarIdx + 1))
     end
 
     reaper.ImGui_Separator(ctx)
 
-    -- Tuple discovery helper
-    if reaper.ImGui_Button(ctx, "Dump TimeMap2_timeToBeats returns to console") then
-      Util.DEBUG = true
-      Util.dump_returns("TimeMap2_timeToBeats", a,b,c,d,e,f,g)
-      Util.DEBUG = false
-      last_time_map_dump = string.format("%s | %s | %s | %s | %s | %s | %s",
-        tostring(a),tostring(b),tostring(c),tostring(d),tostring(e),tostring(f),tostring(g))
+    local contentW, _ = reaper.ImGui_GetContentRegionAvail(ctx)
+    local startX, startY = reaper.ImGui_GetCursorScreenPos(ctx)
+
+    local systems = Layout.compute_systems(bars, startX, startY, contentW, #cfg.tuning, Style)
+    local drawList = reaper.ImGui_GetWindowDrawList(ctx)
+
+    local take = Midi.get_active_take()
+    if not take then
+      reaper.ImGui_Text(ctx, "No active MIDI editor take.")
     end
 
-    if last_time_map_dump ~= "" then
-      reaper.ImGui_Text(ctx, "Last dump (also in console):")
-      reaper.ImGui_TextWrapped(ctx, last_time_map_dump)
+    local eventsByBar = {}
+    if take and #bars > 0 then
+      local epsSec = (cfg.groupEpsilonMs or 5.0) / 1000.0
+      eventsByBar = get_cached_events(take, bars, currentBarIdx, epsSec)
+
+      local context = { lastFretForString = {}, lastStringForTop = nil }
+      for _, bar in ipairs(bars) do
+        local events = eventsByBar[bar.idx]
+        if events then
+          for _, event in ipairs(events) do
+            local assigned, dropped = Frets.solve_event(event, cfg, context)
+            event.assigned = assigned
+            event.dropped = dropped
+          end
+        end
+      end
     end
+
+    Render.draw_systems(drawList, systems, eventsByBar, cfg, Style, col)
 
     reaper.ImGui_End(ctx)
   end

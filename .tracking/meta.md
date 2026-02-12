@@ -1,17 +1,17 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: {YYYY-MM-DD HH:MM UTC}
+- Last updated: 2026-02-12 00:15 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
-  - none
+  - #002-mvp-implementation — Status: in-progress — Owner: agent
 
 - Stack:
-  - (empty)
+  - #001-mvp-plan — Status: done — Owner: agent
 
 > Rules:
 > - First entry is current active task.
@@ -53,6 +53,24 @@ Format:
   Files: TabHUD.lua, lib/layout.lua
   Functions: computeSystems(), renderSystem()
   Related: #010-initial-layout
+
+---
+
+### 2026-02-12
+
+- [done] 001-mvp-plan — MVP plan and guidance (2026-02-12) — Owner: agent
+  Type: docs
+  Stability: stable
+  Files: .tracking/001-mvp-plan.md, planning/project_bried.md, planning/implementation_plan.md, planning/configuration.md, planning/examples_and_testing.md, planning/reascript_api.md
+  Functions: n/a
+  Related: none
+
+- [in-progress] 002-mvp-implementation — MVP implementation (2026-02-12) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/timeline.lua, lib/layout.lua, lib/midi.lua, lib/frets.lua, lib/render.lua, lib/util.lua, .tracking/002-mvp-implementation.md
+  Functions: Config.load(), Config.save(), getCursorTime(), buildBars(), computeSystems(), extractNotes(), groupEvents(), buildCandidates(), solveChord(), reduceChord(), renderSystems(), renderEvents()
+  Related: #001-mvp-plan
 
 ---
 
