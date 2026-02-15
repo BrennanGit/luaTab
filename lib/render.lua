@@ -85,12 +85,23 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
         local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
         local x_pos = bar_layout.content.x + frac * bar_layout.content.w
 
-        for i, note in ipairs(event.assignments) do
+        local assignments = event.assignments or {}
+        if #assignments > 1 then
+          local sorted = {}
+          for i = 1, #assignments do
+            sorted[i] = assignments[i]
+          end
+          table.sort(sorted, function(a, b)
+            return a.string < b.string
+          end)
+          assignments = sorted
+        end
+
+        for _, note in ipairs(assignments) do
           local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
-          local offset = (i - 1) * 3
           local text = tostring(note.fret)
           local w, h = calc_text_size(ctx, text, font_size)
-          local text_x = (x_pos + offset) - (w * 0.5)
+          local text_x = x_pos - (w * 0.5)
           local text_y = y - (h * 0.5)
           draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, col_note_bg, 2, font_size)
         end

@@ -1,3 +1,28 @@
+-- @description luaTab: Tab HUD (Toggle)
+
+
+local SECTION = "luaTab"
+local KEY_RUNNING = "running"
+local KEY_QUIT = "quit"
+
+local _, _, section_id, cmd_id = reaper.get_action_context()
+
+local function set_toggle(on)
+  if section_id and cmd_id then
+    reaper.SetToggleCommandState(section_id, cmd_id, on and 1 or 0)
+    reaper.RefreshToolbar2(section_id, cmd_id)
+  end
+end
+
+if reaper.GetExtState(SECTION, KEY_RUNNING) == "1" then
+  reaper.SetExtState(SECTION, KEY_QUIT, "1", false)
+  return
+end
+
+reaper.SetExtState(SECTION, KEY_RUNNING, "1", false)
+reaper.SetExtState(SECTION, KEY_QUIT, "0", false)
+set_toggle(true)
+
 local source = debug.getinfo(1, "S").source
 if source:sub(1, 1) == "@" then
   source = source:sub(2)
@@ -14,12 +39,30 @@ local source = require("source")
 local frets = require("frets")
 local render = require("render")
 
+local ctx
+local cleaned = false
+
+local function cleanup()
+  if cleaned then return end
+  cleaned = true
+  reaper.SetExtState(SECTION, KEY_RUNNING, "0", false)
+  reaper.SetExtState(SECTION, KEY_QUIT, "0", false)
+  set_toggle(false)
+  if ctx and reaper.ImGui_DestroyContext then
+    reaper.ImGui_DestroyContext(ctx)
+    ctx = nil
+  end
+end
+
+reaper.atexit(cleanup)
+
 if not reaper.APIExists or not reaper.APIExists("ImGui_CreateContext") then
   reaper.MB("ReaImGui not available. Install ReaImGui (ReaPack).", "luaTab", 0)
+  cleanup()
   return
 end
 
-local ctx = reaper.ImGui_CreateContext("luaTab")
+ctx = reaper.ImGui_CreateContext("luaTab")
 local cfg = config_mod.load("luaTab")
 util.log_init(script_dir, cfg.logEnabled, cfg.logVerbose)
 util.log("luaTab started", "info")
@@ -144,7 +187,15 @@ local function compute_sweep_offset_px(t, config)
   return frac * bar_total
 end
 
+local function should_quit()
+  return reaper.GetExtState(SECTION, KEY_QUIT) == "1"
+end
+
 local function draw_ui()
+  if should_quit() then
+    cleanup()
+    return
+  end
   if not state.windowInitialized then
     reaper.ImGui_SetNextWindowSize(ctx, 900, 360, reaper.ImGui_Cond_FirstUseEver())
     reaper.ImGui_SetNextWindowPos(ctx, 100, 100, reaper.ImGui_Cond_FirstUseEver())
@@ -153,7 +204,17 @@ local function draw_ui()
 
   reaper.ImGui_SetNextWindowSizeConstraints(ctx, 640, 240, 4096, 4096)
 
-  local visible, open = reaper.ImGui_Begin(ctx, "luaTab", true, reaper.ImGui_WindowFlags_MenuBar())
+  local ok, visible, open = pcall(reaper.ImGui_Begin, ctx, "luaTab", true, reaper.ImGui_WindowFlags_MenuBar())
+  local began = ok and (visible ~= nil)
+  if not began then
+    reaper.defer(draw_ui)
+    return
+  end
+
+  if open == nil then
+    open = true
+  end
+
   if visible then
     local t = get_cursor_time()
     local current_bar = timeline.get_measure_index(t)
@@ -260,17 +321,22 @@ local function draw_ui()
       state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
       render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar)
     end
+
+    if reaper.ImGui_SetNextFrameWantCaptureKeyboard and reaper.ImGui_IsAnyItemActive then
+      local wants_keyboard = reaper.ImGui_IsAnyItemActive(ctx)
+      reaper.ImGui_SetNextFrameWantCaptureKeyboard(ctx, wants_keyboard)
+    end
   end
 
-  reaper.ImGui_End(ctx)
+  if visible then
+    reaper.ImGui_End(ctx)
+  end
 
   if open then
     reaper.defer(draw_ui)
   else
     util.log("luaTab closed", "info")
-    if reaper.ImGui_DestroyContext then
-      reaper.ImGui_DestroyContext(ctx)
-    end
+    cleanup()
   end
 end
 

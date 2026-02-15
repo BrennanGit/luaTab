@@ -1,16 +1,14 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-15 01:45 UTC
+- Last updated: 2026-02-15 02:16 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
--  - #002-chord-rendering — Status: in-progress — Owner: agent
-- Stack:
-  - (empty)
+-  - (empty)
 - Stack:
   - (empty)
 
@@ -39,10 +37,17 @@ Format:
 
 ---
 
-- [in-progress] 002-chord-rendering — Chord rendering cleanup (2026-02-15) — Owner: agent
+- [done] 003-toggle-action — Toggle toolbar action (2026-02-15) — Owner: agent
   Type: feature
   Stability: experimental
-  Files: .tracking/002-chord-rendering.md
+  Files: luaTab.lua, .tracking/003-toggle-action.md
+  Functions: cleanup(), should_quit(), set_toggle()
+  Related: #001
+
+- [done] 002-chord-rendering — Chord rendering cleanup (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: lib/render.lua, .tracking/002-chord-rendering.md
   Functions: render.draw_systems()
   Related: #001
 
@@ -85,5 +90,3 @@ After working:
 - Update Files/Functions map.
 - POP if complete.
 - Ensure stack reflects reality.
-````
-
