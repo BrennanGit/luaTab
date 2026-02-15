@@ -21,12 +21,14 @@ Keep modules pure where possible: pass data in/out, avoid globals.
 ## MVP features
 
 * Window follows play cursor; if stopped follow edit cursor
+* Window stays open and shows a message when no MIDI is detected
 * Configurable `PrevBars`, `NextBars`
 * Constant bar width with **bar prefix gutter** + **content width**
 * Systems wrap based on window width (joined tab look)
 * Pull MIDI notes from:
 
-  * “Active MIDI editor take” (default)
+  * Preferred: selected track item under cursor
+  * Fallback: active MIDI editor take
 * Group notes into events (chords allowed)
 * Map to string/fret with:
 
@@ -82,6 +84,9 @@ Config = {
   reducePreferHighest = true,
   showFirstTimeSigInSystemGutter = true,
   preloadSeconds = 2.0,   -- v1
+  updateMode = "bar",
+  updateStep = 1,
+  antidelayBeats = 0,
 }
 ```
 

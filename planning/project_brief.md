@@ -35,6 +35,25 @@ System must support configurable N-string tunings.
   * If config `followEditWhenStopped == true`: use `GetCursorPosition()`
 * Bar range should update only when entering a new bar (optional smoothing optimization)
 
+## Window Update Modes
+
+The visible bar window updates according to `updateMode`:
+
+* `bar`: update on every bar change
+* `step`: update every N bars (config `updateStep`)
+* `screen`: update when the current bar enters a new screen-width chunk
+* `continuous`: update continuously (interpolated)
+
+## Antidelay
+
+* `antidelayBeats` advances the window early by the given beat count.
+* Example: with 2 beats, paging happens 2 beats before the bar end.
+
+## No-MIDI Fallback
+
+* The window should remain open even when no MIDI is detected.
+* Show a friendly message in the tab area when no active MIDI take is available.
+
 ---
 
 # Display Model
@@ -140,7 +159,8 @@ Chords:
 
 Initial MVP:
 
-* Active MIDI editor take
+* Preferred: MIDI item under cursor on selected track
+* Fallback: Active MIDI editor take
 
 Later extension:
 
@@ -344,17 +364,10 @@ The tool is considered working when:
 
 ---
 
-# Final Clarifying Questions
+# Confirmed Display Decisions
 
-Before implementation begins, confirm:
+The following display decisions are confirmed and should be treated as defaults:
 
-1. Should string 1 (lowest pitch) render at bottom of staff?
-   (Recommended: yes — natural tab orientation.)
-
-2. Should fret numbers be centered on string line or slightly above?
-   (Standard tab centers on line.)
-
-3. Should open strings (0) render as plain “0” or highlighted slightly?
-   (Most tab uses plain 0.)
-
-If you confirm those, the specification is complete and ready for coding.
+1. String 1 (lowest pitch) renders at the bottom of the staff.
+2. Fret numbers are centered on the string line.
+3. Open strings render as normal frets (plain "0").

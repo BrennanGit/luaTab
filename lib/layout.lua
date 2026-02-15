@@ -1,75 +1,68 @@
--- lib/layout.lua
--- System wrapping and bar geometry
+local layout = {}
 
-local Layout = {}
-
-function Layout.compute_systems(bars, startX, startY, contentW, stringCount, style)
-  local systems = {}
-  local barLayoutsByIdx = {}
-
-  if #bars == 0 then
-    return systems, barLayoutsByIdx
-  end
-
-  local barTotal = style.barPrefixPx + style.barContentPx
-  local usableWidth = math.max(1, contentW)
-  local barsPerSystem = math.floor((usableWidth - style.systemGutterPx) / (barTotal + style.barGutterPx))
-  if barsPerSystem < 1 then
-    barsPerSystem = 1
-  end
-
-  local staffH = (stringCount - 1) * style.stringSpacingPx
-  local rowH = style.staffPadTopPx + staffH + style.staffPadBotPx
-
-  local i = 1
-  local systemIdx = 1
-  while i <= #bars do
-    local count = math.min(barsPerSystem, #bars - i + 1)
-    local systemX = startX
-    local systemY = startY + (systemIdx - 1) * (rowH + style.systemRowGapPx)
-
-    local systemBars = {}
-    local barLayouts = {}
-    for k = 1, count do
-      local bar = bars[i + k - 1]
-      local barLeft = systemX + style.systemGutterPx + (k - 1) * (barTotal + style.barGutterPx)
-      local layout = {
-        barIdx = bar.idx,
-        barLeft = barLeft,
-        prefix = { x = barLeft, w = style.barPrefixPx },
-        content = { x = barLeft + style.barPrefixPx, w = style.barContentPx },
-        barlineX = barLeft,
-        barRef = bar,
-        systemIndex = systemIdx,
-      }
-      systemBars[#systemBars + 1] = bar
-      barLayouts[#barLayouts + 1] = layout
-      barLayoutsByIdx[bar.idx] = layout
-    end
-
-    local barAreaW = count * barTotal + math.max(0, count - 1) * style.barGutterPx
-    local staffRect = {
-      x = systemX + style.systemGutterPx,
-      y = systemY + style.staffPadTopPx,
-      w = barAreaW,
-      h = staffH,
-    }
-
-    systems[#systems + 1] = {
-      x0 = systemX,
-      y = systemY,
-      gutterW = style.systemGutterPx,
-      bars = systemBars,
-      barLayouts = barLayouts,
-      staffRect = staffRect,
-      barAreaW = barAreaW,
-    }
-
-    i = i + count
-    systemIdx = systemIdx + 1
-  end
-
-  return systems, barLayoutsByIdx
+function layout.calc_bars_per_system(config, content_width)
+  local bar_total = config.barPrefixPx + config.barContentPx
+  local usable = math.max(0, content_width)
+  return math.max(1, math.floor((usable - config.systemGutterPx) / (bar_total + config.barGutterPx)))
 end
 
-return Layout
+function layout.build_systems(bars, config, content_width, origin_x, origin_y)
+  local bar_total = config.barPrefixPx + config.barContentPx
+  local bars_per_system = layout.calc_bars_per_system(config, content_width)
+
+  local systems = {}
+  local string_count = #config.tuning
+  local staff_height = (string_count - 1) * config.stringSpacingPx
+  local system_height = config.staffPaddingTopPx + staff_height + config.staffPaddingBottomPx
+
+  local row = 0
+  local i = 1
+  while i <= #bars do
+    local system_bars = {}
+    local bar_layouts = {}
+
+    local x0 = origin_x
+    local y0 = origin_y + row * (system_height + config.systemRowGapPx)
+    local staff_top = y0 + config.staffPaddingTopPx
+    local staff_bottom = staff_top + staff_height
+
+    for k = 1, bars_per_system do
+      local bar = bars[i]
+      if not bar then break end
+
+      local bar_left = x0 + config.systemGutterPx + (k - 1) * (bar_total + config.barGutterPx)
+
+      system_bars[#system_bars + 1] = bar
+      bar_layouts[#bar_layouts + 1] = {
+        barIdx = bar.idx,
+        barLeft = bar_left,
+        prefix = { x = bar_left, w = config.barPrefixPx },
+        content = { x = bar_left + config.barPrefixPx, w = config.barContentPx },
+        barlineX = bar_left,
+      }
+
+      i = i + 1
+    end
+
+    systems[#systems + 1] = {
+      y = y0,
+      x0 = x0,
+      gutterW = config.systemGutterPx,
+      bars = system_bars,
+      barLayouts = bar_layouts,
+      staffRect = {
+        x = x0,
+        y = staff_top,
+        w = content_width,
+        h = staff_height,
+        bottom = staff_bottom,
+      },
+    }
+
+    row = row + 1
+  end
+
+  return systems
+end
+
+return layout

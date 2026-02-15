@@ -1,69 +1,111 @@
--- lib/render.lua
--- Draw systems, barlines, frets, and dropped notes
+local util = require("util")
 
-local Render = {}
+local render = {}
 
-function Render.draw_systems(drawList, systems, eventsByBar, cfg, style, col)
-  local stringCount = #cfg.tuning
+local function string_y(staff_bottom, string_index, spacing)
+  return staff_bottom - (string_index - 1) * spacing
+end
 
-  for _, system in ipairs(systems) do
-    local staff = system.staffRect
+local function draw_time_sig(draw_list, ctx, x, y, num, den, color, font_size)
+  local num_text = tostring(num)
+  local den_text = tostring(den)
+  local scale = 1.4
+  local bold_offset = 1
+  local line_height = font_size * scale
 
-    -- String lines
-    for s = 1, stringCount do
-      local y = staff.y + (s - 1) * style.stringSpacingPx
-      reaper.ImGui_DrawList_AddLine(drawList, staff.x, y, staff.x + staff.w, y, col.strings, style.stringLineThickness)
-    end
+  if ctx and reaper.ImGui_SetWindowFontScale then
+    reaper.ImGui_SetWindowFontScale(ctx, scale)
+  end
 
-    -- Barlines and content
-    for barIdx, layout in ipairs(system.barLayouts) do
-      local bar = layout.barRef
-      local x = layout.barlineX
-      reaper.ImGui_DrawList_AddLine(drawList, x, staff.y, x, staff.y + staff.h, col.bars, style.barLineThickness)
+  reaper.ImGui_DrawList_AddText(draw_list, x, y, color, num_text)
+  reaper.ImGui_DrawList_AddText(draw_list, x + bold_offset, y, color, num_text)
+  reaper.ImGui_DrawList_AddText(draw_list, x, y + line_height, color, den_text)
+  reaper.ImGui_DrawList_AddText(draw_list, x + bold_offset, y + line_height, color, den_text)
 
-      if bar.showTimeSigHere then
-        local tsText = tostring(bar.num) .. "/" .. tostring(bar.den)
-        local tx
-        local ty = staff.y
-        if barIdx == 1 and cfg.showFirstTimeSigInSystemGutter then
-          tx = system.x0 + 4
-        else
-          tx = layout.prefix.x + 2
-        end
-        reaper.ImGui_DrawList_AddText(drawList, tx, ty, col.text, tsText)
-      end
-
-      local events = eventsByBar[bar.idx]
-      if events then
-        for _, event in ipairs(events) do
-          local frac = 0
-          if bar.t1 > bar.t0 then
-            frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
-          end
-          local baseX = layout.content.x + frac * layout.content.w
-
-          local assigned = event.assigned or {}
-          local count = #assigned
-          for i, a in ipairs(assigned) do
-            local offset = (i - (count + 1) / 2) * 4
-            local y = staff.y + (a.stringIndex - 1) * style.stringSpacingPx - 6
-            reaper.ImGui_DrawList_AddText(drawList, baseX + offset, y, col.text, tostring(a.fret))
-          end
-
-          local dropped = event.dropped or {}
-          if #dropped > 0 then
-            local dx = layout.prefix.x + 2
-            local dy = staff.y - 12
-            reaper.ImGui_DrawList_AddText(drawList, dx, dy, col.dropped, "x" .. tostring(#dropped))
-          end
-        end
-      end
-    end
-
-    -- End barline
-    local endX = staff.x + staff.w
-    reaper.ImGui_DrawList_AddLine(drawList, endX, staff.y, endX, staff.y + staff.h, col.bars, style.barLineThickness)
+  if ctx and reaper.ImGui_SetWindowFontScale then
+    reaper.ImGui_SetWindowFontScale(ctx, 1)
   end
 end
 
-return Render
+local function calc_text_size(ctx, text, font_size)
+  if ctx and reaper.ImGui_CalcTextSize then
+    local w, h = reaper.ImGui_CalcTextSize(ctx, text)
+    return w, h
+  end
+  local w = #text * font_size * 0.6
+  return w, font_size
+end
+
+local function draw_text_with_bg(draw_list, ctx, x, y, text, color, bg_color, padding, font_size)
+  local w, h = calc_text_size(ctx, text, font_size)
+  local px = padding or 2
+  reaper.ImGui_DrawList_AddRectFilled(draw_list, x - px, y - px, x + w + px, y + h + px, bg_color)
+  reaper.ImGui_DrawList_AddText(draw_list, x, y, color, text)
+end
+
+function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx)
+  local col_strings = util.color_u32(0.7, 0.7, 0.7, 1)
+  local col_barlines = util.color_u32(0.4, 0.4, 0.4, 1)
+  local col_text = util.color_u32(1, 1, 1, 1)
+  local col_dropped = util.color_u32(1, 0.25, 0.25, 1)
+  local col_marker = util.color_u32(1, 0.2, 0.2, 0.18)
+  local col_note_bg = util.color_u32(0.05, 0.05, 0.05, 0.85)
+
+  font_size = font_size or 12
+
+  for _, system in ipairs(systems) do
+    local staff = system.staffRect
+    local left = system.x0
+    local right = system.x0 + staff.w
+
+    for s = 1, #config.tuning do
+      local y = string_y(staff.bottom, s, config.stringSpacingPx)
+      reaper.ImGui_DrawList_AddLine(draw_list, left, y, right, y, col_strings, 1.0)
+    end
+
+    for k, bar_layout in ipairs(system.barLayouts) do
+      local x = bar_layout.barlineX
+      reaper.ImGui_DrawList_AddLine(draw_list, x, staff.y, x, staff.bottom, col_barlines, 1.0)
+
+      local bar = system.bars[k]
+      if bar then
+        if current_bar_idx ~= nil and bar.idx == current_bar_idx then
+          local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx
+          reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_layout.barLeft, staff.y, bar_right, staff.bottom, col_marker)
+        end
+        if k == 1 and config.showFirstTimeSigInSystemGutter then
+          draw_time_sig(draw_list, ctx, system.x0 + 6, staff.y, bar.num, bar.den, col_text, font_size)
+        elseif bar.showTimeSigHere then
+          draw_time_sig(draw_list, ctx, bar_layout.prefix.x + 2, staff.y, bar.num, bar.den, col_text, font_size)
+        end
+      end
+
+      local events = events_by_bar[bar.idx] or {}
+      for _, event in ipairs(events) do
+        local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
+        local x_pos = bar_layout.content.x + frac * bar_layout.content.w
+
+        for i, note in ipairs(event.assignments) do
+          local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
+          local offset = (i - 1) * 3
+          local text = tostring(note.fret)
+          local w, h = calc_text_size(ctx, text, font_size)
+          local text_x = (x_pos + offset) - (w * 0.5)
+          local text_y = y - (h * 0.5)
+          draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, col_note_bg, 2, font_size)
+        end
+
+        for i, pitch in ipairs(event.dropped) do
+          local y = staff.y - font_size * 0.8
+          local offset = (i - 1) * 8
+          reaper.ImGui_DrawList_AddText(draw_list, bar_layout.prefix.x + offset, y, col_dropped, tostring(pitch))
+        end
+      end
+    end
+
+    local end_x = system.x0 + system.gutterW + (#system.barLayouts) * (config.barPrefixPx + config.barContentPx + config.barGutterPx)
+    reaper.ImGui_DrawList_AddLine(draw_list, end_x, staff.y, end_x, staff.bottom, col_barlines, 1.0)
+  end
+end
+
+return render

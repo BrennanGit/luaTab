@@ -1,91 +1,57 @@
--- lib/timeline.lua
--- Cursor follow + bar window + time signature info
+local util = require("util")
+local timeline = {}
 
-local Util = dofile(reaper.GetResourcePath() .. "/Scripts/luaTab/lib/util.lua")
-
-local Timeline = {}
-
-function Timeline.get_cursor_time(cfg)
-  local playState = reaper.GetPlayState()
-  local isPlaying = (playState & 1) == 1
-  if isPlaying and cfg.followPlay then
-    return reaper.GetPlayPosition()
+local function get_measure_index(t)
+  local _, meas = reaper.TimeMap2_timeToBeats(0, t)
+  if meas == nil then
+    return 0
   end
-  if cfg.followEditWhenStopped then
-    return reaper.GetCursorPosition()
-  end
-  return reaper.GetPlayPosition()
+  return math.max(0, meas)
 end
 
-local function measure_index_at_time(t)
-  local a, b = reaper.TimeMap2_timeToBeats(0, t)
-  local measpos = nil
-  if type(b) == "number" then
-    measpos = b
-  elseif type(a) == "number" then
-    measpos = a
-  end
-  if type(measpos) ~= "number" then
-    return nil
-  end
-  return math.floor(measpos)
+function timeline.get_measure_index(t)
+  return get_measure_index(t)
 end
 
-local function get_measure_bounds(idx)
-  local r1, r2, r3, r4 = reaper.TimeMap2_GetMeasureInfo(0, idx)
-  if type(r1) ~= "number" or type(r2) ~= "number" then
-    return nil
-  end
-  local t0 = r1
-  local t1 = r2
-  if t1 < t0 then
-    t1 = t0 + r2
-  end
-  local num = r3
-  local den = r4
-  if type(num) ~= "number" or type(den) ~= "number" then
-    num, den = reaper.TimeMap_GetTimeSigAtTime(0, t0)
-  end
-  return t0, t1, num, den
-end
-
-function Timeline.build_bars(t, prevBars, nextBars, showFirstTimeSigInSystemGutter)
-  local m = measure_index_at_time(t)
-  if not m then
-    return {}, nil
-  end
-
-  local startIdx = m - prevBars
-  local endIdx = m + nextBars
+function timeline.build_bars(t, prev_bars, next_bars, show_first_in_gutter)
+  local current = get_measure_index(t)
+  local start_idx = math.max(0, current - prev_bars)
+  local end_idx = math.max(start_idx, current + next_bars)
   local bars = {}
-  local prevNum, prevDen
 
-  for i = startIdx, endIdx do
-    local t0, t1, num, den = get_measure_bounds(i)
-    if t0 and t1 then
-      local show = false
-      if i == startIdx and showFirstTimeSigInSystemGutter then
-        show = true
-      elseif prevNum and prevDen and (num ~= prevNum or den ~= prevDen) then
-        show = true
-      elseif not prevNum then
-        show = true
+  local prev_num = nil
+  local prev_den = nil
+
+  for idx = start_idx, end_idx do
+    local t0, qn_start, qn_end, num, den = reaper.TimeMap_GetMeasureInfo(0, idx)
+    local t1 = reaper.TimeMap_GetMeasureInfo(0, idx + 1)
+
+    if t0 ~= nil and t1 ~= nil then
+      local show_sig = false
+      if idx == start_idx and show_first_in_gutter then
+        show_sig = true
+      elseif prev_num ~= nil and prev_den ~= nil then
+        if num ~= prev_num or den ~= prev_den then
+          show_sig = true
+        end
       end
+
       bars[#bars + 1] = {
-        idx = i,
+        idx = idx,
         t0 = t0,
         t1 = t1,
         num = num,
         den = den,
-        showTimeSigHere = show,
+        showTimeSigHere = show_sig,
       }
-      prevNum, prevDen = num, den
-    else
-      Util.log("Timeline: failed to get measure bounds for index " .. tostring(i))
     end
+
+    prev_num = num
+    prev_den = den
   end
 
-  return bars, m
+  util.log(string.format("build_bars current=%d range=%d..%d count=%d", current, start_idx, end_idx, #bars), "debug")
+  return bars, current
 end
 
-return Timeline
+return timeline

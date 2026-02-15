@@ -1,71 +1,51 @@
--- lib/midi.lua
--- MIDI extraction + event grouping
+local util = require("util")
+local midi = {}
 
-local Midi = {}
+-- MIDI take discovery moved to lib/source.lua
 
-function Midi.get_active_take()
-  local editor = reaper.MIDIEditor_GetActive()
-  if not editor then
-    return nil
-  end
-  local take = reaper.MIDIEditor_GetTake(editor)
-  if not take or not reaper.TakeIsMIDI(take) then
-    return nil
-  end
-  return take
-end
-
-function Midi.extract_notes(take, t0, t1)
+function midi.extract_notes(take, t0, t1)
   local notes = {}
-  if not take or t0 == nil or t1 == nil then
-    return notes
-  end
-
-  local noteCount = select(1, reaper.MIDI_CountEvts(take))
-  for i = 0, noteCount - 1 do
-    local ok, _, _, startppq, endppq, _, pitch, vel = reaper.MIDI_GetNote(take, i)
-    if ok then
-      local startTime = reaper.MIDI_GetProjTimeFromPPQPos(take, startppq)
-      if startTime >= t0 and startTime < t1 then
-        local endTime = reaper.MIDI_GetProjTimeFromPPQPos(take, endppq)
-        notes[#notes + 1] = {
-          tStart = startTime,
-          tEnd = endTime,
-          pitch = pitch,
-          vel = vel,
-        }
-      end
+  local _, note_count = reaper.MIDI_CountEvts(take)
+  for i = 0, note_count - 1 do
+    local _, _, _, startppq, endppq, _, pitch, vel = reaper.MIDI_GetNote(take, i)
+    local start_time = reaper.MIDI_GetProjTimeFromPPQPos(take, startppq)
+    if start_time >= t0 and start_time < t1 then
+      local end_time = reaper.MIDI_GetProjTimeFromPPQPos(take, endppq)
+      notes[#notes + 1] = {
+        tStart = start_time,
+        tEnd = end_time,
+        pitch = pitch,
+        vel = vel,
+      }
     end
   end
 
   table.sort(notes, function(a, b)
     if a.tStart == b.tStart then
-      return a.pitch < b.pitch
+      return a.pitch > b.pitch
     end
     return a.tStart < b.tStart
   end)
 
+  util.log(string.format("extract_notes count=%d window=%.3f..%.3f", #notes, t0, t1), "debug")
   return notes
 end
 
-function Midi.group_events(notes, epsilonSec)
+function midi.group_events(notes, epsilon_sec)
   local events = {}
-  if not notes or #notes == 0 then
-    return events
-  end
+  local eps = epsilon_sec or 0
+  local current = nil
 
-  local eps = epsilonSec or 0.005
-  for i = 1, #notes do
-    local note = notes[i]
-    local last = events[#events]
-    if last and math.abs(note.tStart - last.t) <= eps then
-      last.notes[#last.notes + 1] = note
-    else
-      events[#events + 1] = { t = note.tStart, notes = { note } }
+  for _, note in ipairs(notes) do
+    if not current or math.abs(note.tStart - current.t) > eps then
+      current = { t = note.tStart, notes = {} }
+      events[#events + 1] = current
     end
+    current.notes[#current.notes + 1] = note
   end
 
+  util.log(string.format("group_events notes=%d events=%d eps=%.4f", #notes, #events, eps), "debug")
   return events
 end
 
-return Midi
+return midi

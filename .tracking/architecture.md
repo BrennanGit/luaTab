@@ -9,92 +9,106 @@ This document is an advisory, project-agnostic place to capture:
 
 It is intentionally lightweight. Keep it accurate and useful; avoid over-documenting.
 
-Last updated: {YYYY-MM-DD}
+Last updated: 2026-02-15
 
 ---
 
 ## 1) System Overview
 
 ### Purpose
-{What the system does in one paragraph.}
+Render a live, play-aware tablature HUD for MIDI content around the play/edit cursor in REAPER using ReaImGui.
 
 ### Non-Goals
-- {What the system explicitly does not do.}
+- Preloading next items (v1 extension)
+- Tie/hold markers
+- Export or alternate fingerings
 
 ### Key User Flows
-- {Flow 1: e.g., user triggers X → system does Y}
-- {Flow 2}
+- User runs luaTab -> UI appears -> tool follows cursor and renders tab
+- User edits MIDI -> tab updates on bar change
 
 ---
 
 ## 2) High-Level Design
 
 ### Major Components / Modules
-- **{Module A}** — {responsibility}
-- **{Module B}** — {responsibility}
-- **{Module C}** — {responsibility}
+- **luaTab.lua** — main loop, UI, caching, orchestration
+- **lib/config.lua** — defaults, ExtState load/save
+- **lib/timeline.lua** — bar window + time signature data
+- **lib/layout.lua** — system wrapping and bar layout
+- **lib/midi.lua** — active take selection, note extraction, event grouping
+- **lib/source.lua** — take resolution from selected track or MIDI editor
+- **lib/frets.lua** — candidate generation, solver, reduction
+- **lib/render.lua** — draw strings, barlines, notes, time signatures
+- **lib/util.lua** — helpers
 
 ### Data Flow (Narrative)
-{Describe how data moves through the system in 5–10 bullets.}
+- Get cursor time (play or edit)
+- Build bar window for prev/next range
+- Build systems layout based on window width
+- Extract MIDI notes in bar window and group into events
+- Solve fret assignments per event with span constraints
+- Render strings, barlines, time signatures, and frets
 
 ### External Dependencies / Integrations
-- {Dependency} — {why it exists, version constraints if any}
-- {API/service} — {how it’s used}
+- REAPER ReaScript API — time map, MIDI access, cursor position
+- ReaImGui (ReaPack) — UI and draw list rendering
 
 ---
 
 ## 3) Interfaces and Contracts
 
 ### Public Interfaces (Stable)
-- {API/function/config file} — {expected behavior}
+- config.load()/config.save() — persistent settings via ExtState
+- timeline.build_bars() — bar window with time signatures
+- layout.build_systems() — wrapped system layout
 
 ### Internal Interfaces (Flexible)
-- {Module boundary} — {what’s passed across and why}
+- midi.extract_notes()/midi.group_events() — notes to events for render
+- frets.assign_event() — event pitches to string/fret assignments
 
 ### Data Models (If helpful)
-- `{TypeName}` — fields and meaning (brief)
+- `Bar` — idx, t0, t1, num, den, showTimeSigHere
+- `Event` — t, notes[], assignments[], dropped[]
 
 ---
 
 ## 4) Invariants (Do Not Break)
 
-List system truths that must remain correct. Examples:
-- {Invariant about correctness}
-- {Invariant about performance}
-- {Invariant about ordering / consistency}
-- {Invariant about safety / security}
+- Open strings do not contribute to fretted span
+- One note per string in an assignment
+- Rebuild MIDI/event cache only on bar/take change
 
 ---
 
 ## 5) Performance and Scaling Notes
 
 ### Expected Constraints
-- {Latency/CPU constraints}
-- {Memory constraints}
-- {Typical input sizes}
+- Avoid scanning all MIDI every frame
+- Typical bar window is small (few measures)
 
 ### Caching Strategy (If any)
-- {What is cached, keys, invalidation triggers}
+- Cache bar window and event assignments; rebuild on bar change or take change
 
 ---
 
 ## 6) Failure Modes and Recovery
 
-- {Common failure mode} — {how to detect} — {recovery path}
-- {Another failure mode}
+- ReaImGui missing — show message and exit
+- No active MIDI take — render empty staff
 
 ---
 
 ## 7) Testing Strategy
 
 ### Unit / Pure Tests
-- {What is tested without external dependencies}
+- frets and layout tests in tests/tests.lua
 
 ### Integration / End-to-End
-- {What needs real environment integration}
+- REAPER session with active MIDI editor take
 
 ### Regression Checks
-- {Short list of must-run checks before release}
+- L02 (wrap), T02 (time signature), M02 (double stops), F02/F04 (span/reduction)
 
 ---
 

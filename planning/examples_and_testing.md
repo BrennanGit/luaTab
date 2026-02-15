@@ -49,6 +49,21 @@ A build is acceptable when:
   - No flicker/jitter from layout math
   - No overlapping text explosions (minor overlap acceptable early, but should not become unreadable)
 
+**U01: Update mode step**
+- Setup: set update mode to every 2 bars and play through 4 bars
+- Expected:
+  - Window advances every 2 bars
+
+**U02: Update mode screen**
+- Setup: set update mode to bars-on-screen width and resize window
+- Expected:
+  - Window advances when the current bar enters the next screen chunk
+
+**U03: Antidelay beats**
+- Setup: set antidelay to 2 beats, play through a bar
+- Expected:
+  - Window advances 2 beats before the bar ends
+
 ### B) Timeline / Time Signature Display
 
 **T01: No time signature changes**
@@ -71,6 +86,17 @@ A build is acceptable when:
 - Expected:
   - Events contain a single pitch each
   - Notes appear in correct bars and positions
+
+  **M01a: Selected track source**
+  - Setup: select a track with a MIDI item under cursor
+  - Expected:
+    - Notes render without opening the MIDI editor
+
+  **M00: No active MIDI take**
+  - Setup: close MIDI editor or ensure no active take
+  - Expected:
+    - Window stays open
+    - Message appears in the tab area indicating no MIDI is detected
 
 **M02: Double stops**
 - Two notes starting at same time

@@ -1,17 +1,18 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-12 00:15 UTC
+- Last updated: 2026-02-15 01:45 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
-  - #002-mvp-implementation — Status: in-progress — Owner: agent
-
+-  - #002-chord-rendering — Status: in-progress — Owner: agent
 - Stack:
-  - #001-mvp-plan — Status: done — Owner: agent
+  - (empty)
+- Stack:
+  - (empty)
 
 > Rules:
 > - First entry is current active task.
@@ -38,6 +39,20 @@ Format:
 
 ---
 
+- [in-progress] 002-chord-rendering — Chord rendering cleanup (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: .tracking/002-chord-rendering.md
+  Functions: render.draw_systems()
+  Related: #001
+
+- [done] 001-mvp-implementation — MVP implementation plan (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/timeline.lua, lib/layout.lua, lib/midi.lua, lib/source.lua, lib/frets.lua, lib/render.lua, lib/util.lua, tests/tests.lua, .tracking/architecture.md, .tracking/001-mvp-implementation.md, planning/project_brief.md, planning/implementation_plan.md, planning/examples_and_testing.md
+  Functions: config.load(), config.save(), timeline.build_bars(), timeline.get_measure_index(), layout.build_systems(), layout.calc_bars_per_system(), midi.extract_notes(), midi.group_events(), source.get_take(), frets.assign_event(), render.draw_systems(), compute_virtual_bar(), compute_sweep_offset_px()
+  Related: none
+
 ### Example
 
 - [done] 000-demo — Demo task (2026-02-12) — Owner: agent
@@ -46,31 +61,6 @@ Format:
   Files: .tracking/000-demo.md
   Functions: n/a
   Related: none
-
-- [in-progress] 012-layout-refactor — Joined tab layout (2026-02-13) — Owner: agent
-  Type: feature
-  Stability: experimental
-  Files: TabHUD.lua, lib/layout.lua
-  Functions: computeSystems(), renderSystem()
-  Related: #010-initial-layout
-
----
-
-### 2026-02-12
-
-- [done] 001-mvp-plan — MVP plan and guidance (2026-02-12) — Owner: agent
-  Type: docs
-  Stability: stable
-  Files: .tracking/001-mvp-plan.md, planning/project_bried.md, planning/implementation_plan.md, planning/configuration.md, planning/examples_and_testing.md, planning/reascript_api.md
-  Functions: n/a
-  Related: none
-
-- [in-progress] 002-mvp-implementation — MVP implementation (2026-02-12) — Owner: agent
-  Type: feature
-  Stability: experimental
-  Files: luaTab.lua, lib/config.lua, lib/timeline.lua, lib/layout.lua, lib/midi.lua, lib/frets.lua, lib/render.lua, lib/util.lua, .tracking/002-mvp-implementation.md
-  Functions: Config.load(), Config.save(), getCursorTime(), buildBars(), computeSystems(), extractNotes(), groupEvents(), buildCandidates(), solveChord(), reduceChord(), renderSystems(), renderEvents()
-  Related: #001-mvp-plan
 
 ---
 

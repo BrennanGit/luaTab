@@ -1,0 +1,75 @@
+---
+applyTo: "**"
+---
+
+## Workspace Task Tracking Protocol for agent mode
+
+Objectives:
+- Keep a durable record of plans, decisions, and outcomes in .tracking/.
+- Maintain an index in .tracking/meta.md so future sessions can locate prior work fast.
+- Manage context limits with brief recaps and file-linked references.
+
+Conventions:
+- Tracking folder: .tracking (create if missing).
+- Task file: .tracking/NNN-short-slug.md (NNN = zero-padded increment).
+- A demo example is in .tracking/000-demo.md, please read this, you MUST follow the formatting.
+- Meta index: .tracking/meta.md.
+- Never tick a checkbox until verified done. Keep execution logs timestamped.
+- Remember to tick as you go, do not leave until the end.
+- Always create the tracking file before you start editing code.
+- a prompt containing the phrase "#plan" should ALWAYS follow this method
+- Always continue straight on to implementation after planning, unless otherwise instructed.
+- If the user gives follow on instructions to modify the same system after execution has completed, it is ok to update the same task file rather than creating a new one, but you MUST update the Execution Log and Final Summary accordingly. This is especially important if the user says something like "now make it do X instead of Y" or "add Z to what you just did".
+
+On any non-trivial request (things that change multiple files or api compatibility and not tasks that are purely documentation), follow these steps:
+1) Create a new task:
+   - Determine next NNN by scanning task directory for existing tasks; use 3-digit zero-padded numbers.
+   - Create .tracking/NNN-short-slug.md from the task template (below).
+   - Summarize the request, requirements, acceptance criteria, out-of-scope.
+   - Add an entry to .tracking/meta.md (ID, title, date, status=planned, key files).
+   - Set the Active Task in meta.md to this new task.
+2) Plan:
+   - Break into subtasks with md checklists. Include tests/verification steps per subtask.
+   - Link each subtask to expected files/functions.
+3) Execute:
+   - Work incrementally. For each subtask:
+     - Make the change.
+     - Update Execution Log (timestamp, what changed, files/lines).
+     - Verify with tests or checks; only then tick the box.
+   - If plan changes, update the Plan section and meta.md.
+4) Cleanup:
+   - Check meta.md for previous linked tasks/files
+   - if any code has been replaced, remove the old code and any references to them
+   - Move test files to the appropriate directory
+   - Remove temporary files created during the task
+5) Complete:
+   - After finishing the task, update the following:
+     - Update meta.md: status per task, affected files/functions, cross-refs, set Active Task to none.
+     - Update README.md with new layout/running instructions.
+
+Context management (every turn):
+- Start-of-turn: Read .tracking/meta.md and the active task file. Append a 5–10 bullet “Context Recap” to the task file’s Execution Log and include a 3–5 bullet recap in chat.
+- Keep recaps concise and reference anchors (e.g., meta.md -> Tasks -> NNN).
+- Cache only essential code snippets (function signatures, key blocks) with file paths and line numbers in the task file’s Snippet Cache.
+- Reread this file and reinsert related instructions/tasks into your context once you have completed a subtask.
+
+Refactoring annotations:
+- In meta.md, record Task→Files→Functions map and relationships (created/modified/removed).
+- Cross-reference related tasks by ID.
+
+Completion:
+- Add a Final Summary, outcomes, follow-ups.
+- Set status=done in meta.md. Note residual risks or TODOs as new tasks.
+
+Safeguards:
+- If a required file/section is missing, create it with a minimal valid stub.
+- If numbering collision occurs, choose the next available number.
+- If unclear requirements, add Open Questions and request clarification before proceeding.
+- Understand the the user may make changes to a file in between sessions so always be aware of what is actually in the file.
+
+Self-reminder (paste at top of each task file):
+- Read meta.md first; update it last.
+- Plan before changing files; verify before ticking.
+- Log every change; keep recaps short.
+- Reference prior tasks; avoid duplicate work.
+- Remove code that is no longer needed.
