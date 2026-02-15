@@ -6,41 +6,52 @@ local function string_y(staff_bottom, string_index, spacing)
   return staff_bottom - (string_index - 1) * spacing
 end
 
-local function draw_time_sig(draw_list, ctx, x, y, num, den, color, font_size, scale)
-  local num_text = tostring(num)
-  local den_text = tostring(den)
-  local scale_val = scale or 1.4
-  local bold_offset = 1
-  local line_height = font_size * scale_val
-
-  if ctx and reaper.ImGui_SetWindowFontScale then
-    reaper.ImGui_SetWindowFontScale(ctx, scale_val)
+local function font_base_size(ctx, fallback)
+  if ctx and reaper.ImGui_GetFontSize then
+    return reaper.ImGui_GetFontSize(ctx)
   end
-
-  reaper.ImGui_DrawList_AddText(draw_list, x, y, color, num_text)
-  reaper.ImGui_DrawList_AddText(draw_list, x + bold_offset, y, color, num_text)
-  reaper.ImGui_DrawList_AddText(draw_list, x, y + line_height, color, den_text)
-  reaper.ImGui_DrawList_AddText(draw_list, x + bold_offset, y + line_height, color, den_text)
-
-  if ctx and reaper.ImGui_SetWindowFontScale then
-    reaper.ImGui_SetWindowFontScale(ctx, 1)
-  end
+  return fallback or 12
 end
 
 local function calc_text_size(ctx, text, font_size)
+  local base = font_base_size(ctx, font_size)
+  local scale = (base > 0) and (font_size / base) or 1
   if ctx and reaper.ImGui_CalcTextSize then
     local w, h = reaper.ImGui_CalcTextSize(ctx, text)
-    return w, h
+    return w * scale, h * scale
   end
-  local w = #text * font_size * 0.6
-  return w, font_size
+  local w = #text * base * 0.6
+  return w * scale, base * scale
+end
+
+local function draw_text_ex(draw_list, ctx, x, y, color, text, font_size)
+  if reaper.ImGui_DrawList_AddTextEx and reaper.ImGui_GetFont then
+    local font = reaper.ImGui_GetFont(ctx)
+    reaper.ImGui_DrawList_AddTextEx(draw_list, font, font_size, x, y, color, text)
+  else
+    reaper.ImGui_DrawList_AddText(draw_list, x, y, color, text)
+  end
 end
 
 local function draw_text_with_bg(draw_list, ctx, x, y, text, color, bg_color, padding, font_size)
   local w, h = calc_text_size(ctx, text, font_size)
   local px = padding or 2
   reaper.ImGui_DrawList_AddRectFilled(draw_list, x - px, y - px, x + w + px, y + h + px, bg_color)
-  reaper.ImGui_DrawList_AddText(draw_list, x, y, color, text)
+  draw_text_ex(draw_list, ctx, x, y, color, text, font_size)
+end
+
+local function draw_time_sig(draw_list, ctx, x, y, num, den, color, font_size, scale)
+  local num_text = tostring(num)
+  local den_text = tostring(den)
+  local scale_val = scale or 1.4
+  local bold_offset = 1
+  local sized_font = font_size * scale_val
+  local line_height = sized_font
+
+  draw_text_ex(draw_list, ctx, x, y, color, num_text, sized_font)
+  draw_text_ex(draw_list, ctx, x + bold_offset, y, color, num_text, sized_font)
+  draw_text_ex(draw_list, ctx, x, y + line_height, color, den_text, sized_font)
+  draw_text_ex(draw_list, ctx, x + bold_offset, y + line_height, color, den_text, sized_font)
 end
 
 local function add_boundary_time(boundaries, t)
@@ -78,15 +89,6 @@ local function color_from_cfg(config, key, fallback)
   return util.color_u32(color[1], color[2], color[3], color[4])
 end
 
-local function with_font_scale(ctx, scale, fn)
-  if ctx and reaper.ImGui_SetWindowFontScale and scale and scale ~= 1 then
-    reaper.ImGui_SetWindowFontScale(ctx, scale)
-    fn()
-    reaper.ImGui_SetWindowFontScale(ctx, 1)
-    return
-  end
-  fn()
-end
 
 function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds)
   local col_strings = color_from_cfg(config, "strings", util.color_u32(0.7, 0.7, 0.7, 1))
@@ -173,26 +175,22 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
           assignments = sorted
         end
 
-        with_font_scale(ctx, fret_scale, function()
-          local sized_font = font_size * fret_scale
-          for _, note in ipairs(assignments) do
-            local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
-            local text = tostring(note.fret)
-            local w, h = calc_text_size(ctx, text, sized_font)
-            local text_x = x_pos - (w * 0.5)
-            local text_y = y - (h * 0.5)
-            draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, col_note_bg, 2, sized_font)
-          end
-        end)
+        local sized_font = font_size * fret_scale
+        for _, note in ipairs(assignments) do
+          local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
+          local text = tostring(note.fret)
+          local w, h = calc_text_size(ctx, text, sized_font)
+          local text_x = x_pos - (w * 0.5)
+          local text_y = y - (h * 0.5)
+          draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, col_note_bg, 2, sized_font)
+        end
 
-        with_font_scale(ctx, dropped_scale, function()
-          local sized_font = font_size * dropped_scale
-          for i, pitch in ipairs(event.dropped) do
-            local y = staff.y - sized_font * 0.8
-            local offset = (i - 1) * 8
-            reaper.ImGui_DrawList_AddText(draw_list, bar_layout.prefix.x + offset, y, col_dropped, tostring(pitch))
-          end
-        end)
+        local dropped_font = font_size * dropped_scale
+        for i, pitch in ipairs(event.dropped) do
+          local y = staff.y - dropped_font * 0.8
+          local offset = (i - 1) * 8
+          draw_text_ex(draw_list, ctx, bar_layout.prefix.x + offset, y, col_dropped, tostring(pitch), dropped_font)
+        end
       end
     end
 

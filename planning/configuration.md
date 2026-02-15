@@ -131,6 +131,7 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 - `colDebug` (optional)
 
 Runtime-configurable colors (via settings popup):
+- `colorPreset` (enum): dark, light
 - `colors.background`
 - `colors.text`
 - `colors.strings`

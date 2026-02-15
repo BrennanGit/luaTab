@@ -31,6 +31,8 @@ config.defaults = {
     noteBg = { 0.05, 0.05, 0.05, 0.85 },
   },
 
+  colorPreset = "dark",
+
   tuning = {
     { name = "G", open = 55 },
     { name = "D", open = 62 },
@@ -170,6 +172,8 @@ function config.load(section)
   cfg.logVerbose = read_bool(ns, "logVerbose", cfg.logVerbose)
   cfg.logPath = read_string(ns, "logPath", cfg.logPath)
 
+  cfg.colorPreset = read_string(ns, "colorPreset", cfg.colorPreset)
+
   cfg.updateMode = read_string(ns, "updateMode", cfg.updateMode)
   cfg.updateStep = read_number(ns, "updateStep", cfg.updateStep)
   cfg.antidelayBeats = read_number(ns, "antidelayBeats", cfg.antidelayBeats)
@@ -243,6 +247,8 @@ function config.save(cfg, section)
   write_value(ns, "logEnabled", cfg.logEnabled)
   write_value(ns, "logVerbose", cfg.logVerbose)
   write_value(ns, "logPath", cfg.logPath or "")
+
+  write_value(ns, "colorPreset", cfg.colorPreset or "dark")
 
   write_value(ns, "updateMode", cfg.updateMode)
   write_value(ns, "updateStep", cfg.updateStep)

@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-15 05:18 UTC
+- Last updated: 2026-02-15 05:56 UTC
 
 ---
 
@@ -64,6 +64,20 @@ Format:
   Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/008-color-swatch-bg.md
   Functions: config.load(), config.save(), draw_ui()
   Related: #007
+
+- [done] 009-font-scale-render — Font scale rendering (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/render.lua, .tracking/009-font-scale-render.md
+  Functions: draw_time_sig(), draw_text_with_bg(), render.draw_systems()
+  Related: #007
+
+- [done] 010-color-presets — Color presets (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/010-color-presets.md
+  Functions: config.load(), config.save(), draw_ui()
+  Related: #008
 
 - [in-progress] 004-next-item-preview — Next item preview + item barlines (2026-02-15) — Owner: agent
   Type: feature

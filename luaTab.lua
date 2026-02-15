@@ -148,6 +148,37 @@ local tuning_presets = {
   },
 }
 
+local color_presets = {
+  {
+    id = "dark",
+    label = "Dark",
+    colors = {
+      background = { 0.08, 0.08, 0.08, 1.0 },
+      text = { 1.0, 1.0, 1.0, 1.0 },
+      strings = { 0.7, 0.7, 0.7, 1.0 },
+      barlines = { 0.4, 0.4, 0.4, 1.0 },
+      itemBoundary = { 0.7, 0.7, 0.7, 1.0 },
+      dropped = { 1.0, 0.25, 0.25, 1.0 },
+      marker = { 1.0, 0.2, 0.2, 0.18 },
+      noteBg = { 0.05, 0.05, 0.05, 0.85 },
+    },
+  },
+  {
+    id = "light",
+    label = "Light",
+    colors = {
+      background = { 0.96, 0.96, 0.96, 1.0 },
+      text = { 0.08, 0.08, 0.08, 1.0 },
+      strings = { 0.35, 0.35, 0.35, 1.0 },
+      barlines = { 0.2, 0.2, 0.2, 1.0 },
+      itemBoundary = { 0.2, 0.2, 0.2, 1.0 },
+      dropped = { 0.75, 0.1, 0.1, 1.0 },
+      marker = { 0.2, 0.4, 0.9, 0.18 },
+      noteBg = { 1.0, 1.0, 1.0, 0.85 },
+    },
+  },
+}
+
 local function preset_index_for_id(preset_id)
   for i, preset in ipairs(tuning_presets) do
     if preset.id == preset_id then
@@ -164,6 +195,27 @@ local function apply_tuning_preset(cfg, preset)
   cfg.tuning = util.copy_table(preset.tuning)
   cfg.maxSimul = #cfg.tuning
   cfg.tuningPreset = preset.id
+  return true
+end
+
+local function color_preset_index(preset_id)
+  for i, preset in ipairs(color_presets) do
+    if preset.id == preset_id then
+      return i
+    end
+  end
+  return 1
+end
+
+local function apply_color_preset(cfg, preset)
+  if not preset or not preset.colors then
+    return false
+  end
+  for key, value in pairs(preset.colors) do
+    cfg.colors[key] = util.copy_table(value)
+  end
+  cfg.colorPreset = preset.id
+  state.colorHex = {}
   return true
 end
 
@@ -557,6 +609,17 @@ local function draw_ui()
       end
 
       if reaper.ImGui_CollapsingHeader(ctx, "Styling", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+        local preset_labels = "Dark\0Light\0"
+        local preset_index = color_preset_index(cfg.colorPreset or "dark") - 1
+        reaper.ImGui_SetNextItemWidth(ctx, 160)
+        rv, preset_index = reaper.ImGui_Combo(ctx, "Color preset", preset_index, preset_labels)
+        if rv then
+          local preset = color_presets[preset_index + 1]
+          if apply_color_preset(cfg, preset) then
+            settings_changed = true
+          end
+        end
+
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.systemGutterPx = edit_int(ctx, "System gutter", cfg.systemGutterPx, 0, 300)
         settings_changed = settings_changed or rv

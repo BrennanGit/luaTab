@@ -88,6 +88,22 @@ Add next-item lookup on the timeline and render thicker barlines at item starts/
   * Next Subtask: Push a small UI refinement task for color swatches and background color.
   * Known Risks: ReaImGui color button argument mismatch.
 
+* 2026-02-15 05:30 UTC Start-of-turn Context Recap:
+
+  * Goal: Fix font scaling so fret and time signature text actually renders larger.
+  * Current State: Scale only affects spacing; draw text size unchanged.
+  * Blocking Issues: None.
+  * Next Subtask: Use ImGui_DrawList_AddTextEx with explicit font size.
+  * Known Risks: ReaImGui version compatibility (requires 6.24+).
+
+* 2026-02-15 05:48 UTC Start-of-turn Context Recap:
+
+  * Goal: Add light/dark color presets in Settings.
+  * Current State: Colors are per-field hex inputs only.
+  * Blocking Issues: None.
+  * Next Subtask: Push a small task to add color presets + persistence.
+  * Known Risks: Need to sync hex buffers after preset changes.
+
 ## Decisions
 
 * Item boundaries are drawn as thicker vertical lines spanning the staff.
