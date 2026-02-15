@@ -19,6 +19,12 @@ System must support configurable N-string tunings.
 
 ---
 
+# Compatibility
+
+* REAPER v6.0+ (Lua + ReaImGui)
+
+---
+
 # Core Behavior Specification
 
 ## Cursor Following

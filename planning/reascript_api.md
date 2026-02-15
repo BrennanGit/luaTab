@@ -1,360 +1,219 @@
-# 1) Window/UI (ReaImGui)
+# ReaScript API reference (for luaTab / tab-renderer project)
 
-### Context + main loop
+This file is a **curated index** of the REAPER API calls the project is likely to use.
+It is **not** a copy of REAPER’s documentation.
 
-* `reaper.ImGui_CreateContext(name)`
-* `reaper.ImGui_Begin(ctx, title, open, flags)`
-* `reaper.ImGui_End(ctx)`
-* `reaper.ImGui_DestroyContext(ctx)`
-* `reaper.defer(func)` (frame loop)
+## Source of truth (use these)
 
-**Gotchas**
+1) **Local (REAPER 6.83-generated) docs in this repo**
+- `planning/reascripthelp.html`
+- Jump to functions via anchors like: `planning/reascripthelp.html#TimeMap2_timeToBeats`
 
-* Immediate mode: you recompute layout and redraw every frame.
-* Use a stable “open” flag to allow closing.
-* Don’t allocate big tables every frame unless cached; Lua GC stutter is real.
+2) **Upstream / “latest” docs (often effectively REAPER 7+)**
+- Official: https://www.reaper.fm/sdk/reascript/reascripthelp.html
 
-### Sizing / content region (for wrapping systems)
-
-* `reaper.ImGui_GetContentRegionAvail(ctx)` → `(w, h)`
-* `reaper.ImGui_GetCursorScreenPos(ctx)` → `(x, y)` (useful for DrawList coordinates)
-* `reaper.ImGui_GetWindowDrawList(ctx)` → draw list handle
-
-### Draw primitives
-
-* `reaper.ImGui_DrawList_AddLine(draw_list, x1,y1,x2,y2, col, thickness)`
-* `reaper.ImGui_DrawList_AddText(draw_list, x,y, col, text)`
-* `reaper.ImGui_DrawList_AddRectFilled(draw_list, x1,y1,x2,y2, col, rounding)` (optional backgrounds)
-
-### Widgets you’ll want
-
-* `reaper.ImGui_Checkbox(ctx, label, bool)`
-* `reaper.ImGui_SliderInt(ctx, label, v, v_min, v_max)`
-* `reaper.ImGui_SliderDouble(ctx, label, v, v_min, v_max, fmt)`
-* `reaper.ImGui_Combo(ctx, label, current_idx, items_csv)` (or build your own)
-* `reaper.ImGui_Separator(ctx)`
-
-**Gotchas**
-
-* Colors are packed ints. You’ll likely want a helper:
-
-  * `reaper.ImGui_ColorConvertDouble4ToU32(r,g,b,a)` → col
-* Use **screen coords** for DrawList.
+3) **ReaImGui (if used)**
+- ReaImGui repo: https://github.com/cfillion/reaimgui
+- Forum thread: https://forum.cockos.com/showthread.php?t=250419
 
 ---
 
-# 2) Cursor / transport (follow play or edit cursor)
+## Compatibility strategy (REAPER 6.83 ↔ 7)
 
-### Playback state
+### 1) Always feature-detect optional APIs
+Use `reaper.APIExists("FunctionName")` before calling anything that may be:
+- extension-provided (ReaImGui, SWS, etc.)
+- added in newer REAPER releases
 
-* `reaper.GetPlayState()`
-  Returns bitmask:
-
-  * 0 = stopped
-  * 1 = playing
-  * 2 = paused
-  * 4 = recording
-    (You mostly care about “playing vs not”.)
-
-### Time positions
-
-* `reaper.GetPlayPosition()` → current play cursor time (seconds)
-* `reaper.GetCursorPosition()` → edit cursor time (seconds)
-
-**Gotchas**
-
-* When paused, play position may still return the pause location; decide whether to treat paused as “follow play”.
-
----
-
-# 3) Time map / bars / time signatures (critical)
-
-You need:
-
-* current **measure index** from time
-* each measure’s **start/end time**
-* **time signature** at a measure
-* handle time-sig changes mid-project
-
-### Converting time → musical position
-
-* `reaper.TimeMap2_timeToBeats(proj, time)`
-  Returns multiple values; depending on REAPER version you may get:
-
-  * beats position (from project start)
-  * measures (or measure index)
-  * beats-in-measure
-  * etc.
-
-**Gotchas**
-
-* The exact return tuple varies across REAPER versions/languages. In Lua, capture generously:
-
-  ```lua
-  local beatpos, measurepos, beat_in_meas = reaper.TimeMap2_timeToBeats(0, t)
-  ```
-
-  Then print/debug once to confirm what you’re getting.
-
-### Getting measure boundaries and time signature
-
-* `reaper.TimeMap2_GetMeasureInfo(proj, measure_idx)`
-  Returns several values including (commonly):
-
-  * measure start time (seconds)
-  * measure end time (seconds) OR length in seconds
-  * time sig numerator/denominator
-  * tempo / marker info (varies)
-
-**Gotchas**
-
-* Like above: return tuple varies. Strategy:
-
-  * call once, print all returns to console via `reaper.ShowConsoleMsg` during development
-  * then lock into positions you need.
-* Measure indices are **0-based** in many APIs. Confirm by checking measure 0 start time should be 0.0.
-
-### Fallback: time signature at time
-
-* `reaper.TimeMap_GetTimeSigAtTime(proj, time)`
-  Typically returns `num, denom` (and sometimes additional values).
-
-**Gotchas**
-
-* This is simpler if `TimeMap2_GetMeasureInfo` is confusing for your agent.
-
-### Project tempo/time signature markers enumeration (optional)
-
-If you end up wanting to detect changes explicitly:
-
-* `reaper.CountTempoTimeSigMarkers(proj)`
-* `reaper.GetTempoTimeSigMarker(proj, idx)`
-  Returns marker properties including time, measure, beat, BPM, time sig.
-
-**Gotchas**
-
-* If you rely on measure info calls, you don’t need this, but it’s useful for debugging “why did time sig change here?”
-
----
-
-# 4) Track/item/take selection + preloading
-
-### Working with tracks
-
-* `reaper.GetSelectedTrack(proj, idx)` (idx 0 = first selected)
-* `reaper.GetTrack(proj, idx)` (idx 0 = first track in project)
-* `reaper.CountTracks(proj)`
-
-### Iterating items on a track
-
-* `reaper.CountTrackMediaItems(track)`
-* `reaper.GetTrackMediaItem(track, i)` → MediaItem*
-
-Item properties:
-
-* `reaper.GetMediaItemInfo_Value(item, "D_POSITION")` (seconds)
-* `reaper.GetMediaItemInfo_Value(item, "D_LENGTH")` (seconds)
-* `reaper.GetMediaItemInfo_Value(item, "B_MUTE")` (0/1)
-
-Take access:
-
-* `reaper.GetActiveTake(item)` → MediaItem_Take*
-* `reaper.CountTakes(item)`
-* `reaper.GetTake(item, i)`
-
-MIDI test:
-
-* `reaper.TakeIsMIDI(take)` → bool
-
-GUID (for caching):
-
-* `reaper.BR_GetMediaItemGUID(item)` (SWS)
-  If you want to avoid SWS dependency, you can use item pointer identity as key, but GUID is nicer.
-  (If SWS isn’t guaranteed, store by `tostring(item)`.)
-
-**Preload pattern**
-
-* Find current item under cursor:
-
-  * iterate items on track and check `pos <= t < pos+len`
-* Find next item:
-
-  * smallest `pos` such that `pos >= current_end`
-* Preload when `current_end - t <= preloadSeconds`
-
-**Gotchas**
-
-* Items can overlap. Decide rule: “prefer item with latest start that contains t” usually matches “topmost” logic on that track.
-* Multiple MIDI takes per item: most cases active take is fine.
-
----
-
-# 5) MIDI editor integration (if you support “active MIDI editor take”)
-
-* `reaper.MIDIEditor_GetActive()` → editor handle (or nil)
-* `reaper.MIDIEditor_GetTake(editor)` → take
-
-**Gotchas**
-
-* If no MIDI editor is open, this returns nil. Provide fallback to selected item/take mode.
-
----
-
-# 6) MIDI note extraction (the meat)
-
-### Count events
-
-* `reaper.MIDI_CountEvts(take)` → `noteCount, ccCount, textSyxCount`
-
-### Get notes
-
-* `reaper.MIDI_GetNote(take, note_idx)`
-  Returns:
-
-  * selected (bool)
-  * muted (bool)
-  * startppqpos (number)
-  * endppqpos (number)
-  * chan (int)
-  * pitch (int 0–127)
-  * vel (int 0–127)
-
-### Convert project time ↔ PPQ
-
-* `reaper.MIDI_GetPPQPosFromProjTime(take, time_sec)` → ppq
-* `reaper.MIDI_GetProjTimeFromPPQPos(take, ppq)` → time_sec
-
-**Gotchas**
-
-* PPQ depends on item source length/tempo map; using REAPER conversions is correct.
-* Notes might be in arbitrary order; sort by `startppqpos` then pitch.
-
-### Performance tip
-
-Instead of scanning all notes each frame:
-
-* Cache notes per item/take and only rebuild when:
-
-  * take changes
-  * MIDI hash changes (no direct hash; use a cheap heuristic: store `noteCount` + maybe the last note’s startppq)
-  * cursor enters a new bar (so your visible set changes)
-
-If you do need a full scan, do it only when bar index changes.
-
-### Channel filtering
-
-* from `MIDI_GetNote`, filter by `chan` if user selects.
-
----
-
-# 7) Text/console logging (for offline debugging)
-
-* `reaper.ShowConsoleMsg("text\n")`
-* `reaper.ClearConsole()`
-
-This is how your agent should “discover” unknown return tuples from TimeMap2 functions: print them once.
-
----
-
-# 8) Persistent settings (your tuning + UI prefs)
-
-* `reaper.SetExtState(section, key, value, persist)`
-* `reaper.GetExtState(section, key)`
-* `reaper.HasExtState(section, key)`
-* `reaper.DeleteExtState(section, key, persist)`
-
-**Gotchas**
-
-* Everything is a string; serialize tables yourself (simple `key=value;` format or JSON if you have a tiny encoder).
-* Namespace your section like `"luaTab"`.
-
----
-
-# 9) Common “situational gotchas” for this project
-
-### A) Time signature changes mid-measure
-
-REAPER time sig markers are measure-based in normal use, but users can do odd things. Safer approach:
-
-* determine bar boundaries via `TimeMap2_GetMeasureInfo`
-* determine sig at bar start via `TimeMap_GetTimeSigAtTime(bar.t0)`
-
-### B) Notes crossing barlines
-
-If you want “hold” indicators later:
-
-* include notes where `start < bar_end && end > bar_start`
-* but for MVP you can include only start-in-bar to simplify.
-
-### C) Multiple items / gaps
-
-When bar windows fall in gaps between items:
-
-* display empty bars (still draw staff/barlines)
-* preloading helps avoid empties at transitions.
-
-### D) Overlapping MIDI items on same track
-
-Pick priority rule:
-
-* item with latest start containing t
-* OR item with highest lane (harder; requires UI state)
-  Most people don’t overlap for this use-case; pick simple.
-
-### E) Tempo map and PPQ stability
-
-Always convert using `MIDI_GetPPQPosFromProjTime` for the specific take. Don’t assume constant PPQ per second.
-
-### F) “Measure index” off-by-one
-
-Confirm by test:
-
-* at time 0, measure index should be 0
-* bar start returned should be 0.0
-  If not, adjust.
-
----
-
-# 10) Minimal call checklist by subsystem
-
-### Follow cursor + bar range
-
-* `GetPlayState`
-* `GetPlayPosition` / `GetCursorPosition`
-* `TimeMap2_timeToBeats`
-* `TimeMap2_GetMeasureInfo` (or `TimeMap_GetTimeSigAtTime`)
-
-### MIDI from active editor
-
-* `MIDIEditor_GetActive`
-* `MIDIEditor_GetTake`
-* `MIDI_CountEvts`
-* `MIDI_GetNote`
-* `MIDI_GetPPQPosFromProjTime`
-* `MIDI_GetProjTimeFromPPQPos`
-
-### Preloading on track items
-
-* `GetSelectedTrack` / `GetTrack`
-* `CountTrackMediaItems`
-* `GetTrackMediaItem`
-* `GetMediaItemInfo_Value` (pos/len)
-* `GetActiveTake`
-* `TakeIsMIDI`
-
-### UI drawing
-
-* `ImGui_*` calls listed above
-
----
-
-If you want to make life easier for your local agent, tell them this dev trick up front:
-
-**When unsure about return values** (TimeMap2 functions especially), log all returns once:
-
+Example:
 ```lua
-local a,b,c,d,e,f,g = reaper.TimeMap2_GetMeasureInfo(0, m)
-reaper.ShowConsoleMsg(string.format("GetMeasureInfo: %s %s %s %s %s %s %s\n",
-  tostring(a),tostring(b),tostring(c),tostring(d),tostring(e),tostring(f),tostring(g)))
+local has_imgui = reaper.APIExists and reaper.APIExists("ImGui_CreateContext")
+if not has_imgui then
+  reaper.MB("ReaImGui not available. Install ReaImGui (ReaPack) or disable UI mode.", "luaTab", 0)
+  return
+end
 ```
 
+### 2) Treat multi-return functions as “shape-checked”
+Many functions return multiple values. In Lua, **capture the full tuple** you need and confirm positions once.
+For uncertain return layouts, log once with `reaper.ShowConsoleMsg`.
+
+### 3) Prefer stable, older calls where possible
+When two calls can solve the same problem, prefer the one that has existed longer and has stable signatures.
+
+For this project:
+- Prefer `TimeMap_GetTimeSigAtTime` for “what’s the sig here?”
+- Prefer `TimeMap_GetMeasureInfo` if you need QN start/end + tempo at measure start
+- Use `TimeMap2_timeToBeats` as the general “time → (measure, beats)” workhorse
+
+### 4) Extensions: treat as optional
+- **ReaImGui**: third-party extension (ReaPack). Not guaranteed installed.
+- **SWS (BR_*)**: optional; avoid hard dependency if you can.
+
+---
+
+## A) UI / windowing (ReaImGui)
+
+**Doc anchor hints (local):**
+- `#ImGui_CreateContext`, `#ImGui_Begin`, `#ImGui_End`, `#ImGui_DestroyContext`
+- `#ImGui_GetContentRegionAvail`, `#ImGui_GetCursorScreenPos`, `#ImGui_GetWindowDrawList`
+- `#ImGui_DrawList_AddLine`, `#ImGui_DrawList_AddText`, `#ImGui_DrawList_AddRectFilled`
+- `#ImGui_Checkbox`, `#ImGui_SliderInt`, `#ImGui_SliderDouble`, `#ImGui_Combo`, `#ImGui_Separator`
+- `#ImGui_ColorConvertDouble4ToU32`
+
+**Compatibility notes**
+- Many ReaImGui functions state minimum REAPER versions in the docs (e.g. “requires REAPER 6.24 or later”).
+- Even if REAPER version is new enough, **the ReaImGui extension still must be installed**.
+
+**Project-specific gotchas**
+- Use screen coordinates for DrawList primitives.
+- Avoid per-frame table churn (Lua GC stutter).
+
+---
+
+## B) Cursor / transport
+
+**Docs**
+- `#GetPlayState`
+- `#GetPlayPosition`
+- `#GetCursorPosition`
+
+**Notes**
+- Decide follow behavior when paused: `GetPlayState()` includes paused bit.
+
+---
+
+## C) Time map / measures / time signatures
+
+### Convert time → beats/measure (primary)
+**Docs**
+- `#TimeMap2_timeToBeats`
+
+**What it gives you (Lua)**
+- returns `retval` plus optional outputs:
+  - `measures` (measure count)
+  - `cml` (current measure length in beats, i.e. numerator)
+  - `fullbeats` (full beat count)
+  - `cdenom` (denominator)
+
+**Compatibility**
+- Signature/behavior is stable across 6.x/7.x, but always capture in a way that tolerates nils:
+```lua
+local beats_since_meas, meas, cml, fullbeats, denom = reaper.TimeMap2_timeToBeats(0, t)
+```
+
+### Measure info at measure index (QN start/end + sig + tempo)
+**Docs**
+- `#TimeMap_GetMeasureInfo`
+
+**Returns (Lua)**
+- `retval` (seconds of measure start), `qn_start`, `qn_end`, `timesig_num`, `timesig_denom`, `tempo`
+
+### Time signature + tempo at time
+**Docs**
+- `#TimeMap_GetTimeSigAtTime`
+
+**Returns (Lua)**
+- `timesig_num`, `timesig_denom`, `tempo`
+
+### Detect “next change time” (optional but useful for caching)
+**Docs**
+- `#TimeMap2_GetNextChangeTime`
+
+**Use**
+- Cache invalidation for bar window if tempo/time-sig changes are rare.
+
+---
+
+## D) Track/item/take selection (and preloading items)
+
+**Docs**
+- Tracks: `#CountTracks`, `#GetTrack`, `#GetSelectedTrack`
+- Items: `#CountTrackMediaItems`, `#GetTrackMediaItem`
+- Item props: `#GetMediaItemInfo_Value` (use `"D_POSITION"`, `"D_LENGTH"`, `"B_MUTE"`)
+- Takes: `#GetActiveTake`, `#CountTakes`, `#GetTake`, `#TakeIsMIDI`
+
+**Preload helper**
+- Use item start+len to find current item under cursor and next item.
+- Decide overlap policy: “latest start that contains time” is usually sane.
+
+**Optional (SWS)**
+- `BR_GetMediaItemGUID` is in SWS, not core. Prefer `tostring(item)` as a cache key if avoiding SWS.
+
+---
+
+## E) MIDI editor integration
+
+**Docs**
+- `#MIDIEditor_GetActive`
+- `#MIDIEditor_GetTake`
+- Optional: `#MIDIEditor_EnumTakes` (if you want multi-take editor support later)
+
+**Notes**
+- If no MIDI editor open, `MIDIEditor_GetActive()` returns nil.
+
+---
+
+## F) MIDI extraction + time conversion
+
+**Docs**
+- `#MIDI_CountEvts`
+- `#MIDI_GetNote`
+- `#MIDI_GetPPQPosFromProjTime`
+- `#MIDI_GetProjTimeFromPPQPos`
+- Optional but handy:
+  - `#MIDI_GetHash` (if available) for change detection
+  - `#MIDI_Sort` (if you ever write notes/CCs)
+
+**Performance pattern**
+- Cache per-take extraction and only rebuild when:
+  - active take changes, OR
+  - MIDI hash / event count changes, OR
+  - bar window changes
+
+---
+
+## G) Logging / debugging
+
+**Docs**
+- `#ShowConsoleMsg`
+- `#ClearConsole`
+
+**Use this to verify multi-return tuples once during dev.**
+
+---
+
+## H) Persistent settings
+
+**Docs**
+- `#SetExtState`, `#GetExtState`, `#HasExtState`, `#DeleteExtState`
+- Project-specific variant if you need per-project:
+  - `#GetProjExtState`, `#SetProjExtState` (check docs; prefer if settings should travel with the project)
+
+**Notes**
+- Values are strings; serialize simple tables yourself.
+
+---
+
+## Appendix: “minimum viable” API checklist for this project
+
+### Cursor-follow + bar range
+- `GetPlayState`, `GetPlayPosition`, `GetCursorPosition`
+- `TimeMap2_timeToBeats`
+- `TimeMap_GetTimeSigAtTime` (and/or `TimeMap_GetMeasureInfo`)
+
+### Active MIDI editor take mode
+- `MIDIEditor_GetActive`, `MIDIEditor_GetTake`
+
+### MIDI extraction
+- `MIDI_CountEvts`, `MIDI_GetNote`
+- `MIDI_GetPPQPosFromProjTime`, `MIDI_GetProjTimeFromPPQPos`
+
+### Items mode + preloading
+- `GetSelectedTrack` / `GetTrack`, `CountTrackMediaItems`, `GetTrackMediaItem`
+- `GetMediaItemInfo_Value`, `GetActiveTake`, `TakeIsMIDI`
+
+### UI (if ReaImGui installed)
+- `ImGui_CreateContext`, `ImGui_Begin`, `ImGui_End`, `ImGui_DestroyContext`
+- `ImGui_GetContentRegionAvail`, `ImGui_GetCursorScreenPos`, `ImGui_GetWindowDrawList`
+- DrawList add primitives, a couple widgets, and `defer`
