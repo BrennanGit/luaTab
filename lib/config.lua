@@ -17,6 +17,8 @@ config.defaults = {
   staffPaddingTopPx = 10,
   staffPaddingBottomPx = 10,
   stringSpacingPx = 14,
+  barLineThickness = 1.0,
+  itemBoundaryThickness = 2.5,
 
   tuning = {
     { name = "G", open = 55 },
@@ -102,6 +104,8 @@ function config.load(section)
   cfg.staffPaddingTopPx = read_number(ns, "staffPaddingTopPx", cfg.staffPaddingTopPx)
   cfg.staffPaddingBottomPx = read_number(ns, "staffPaddingBottomPx", cfg.staffPaddingBottomPx)
   cfg.stringSpacingPx = read_number(ns, "stringSpacingPx", cfg.stringSpacingPx)
+  cfg.barLineThickness = read_number(ns, "barLineThickness", cfg.barLineThickness)
+  cfg.itemBoundaryThickness = read_number(ns, "itemBoundaryThickness", cfg.itemBoundaryThickness)
 
   cfg.maxFret = read_number(ns, "maxFret", cfg.maxFret)
   cfg.maxFrettedSpan = read_number(ns, "maxFrettedSpan", cfg.maxFrettedSpan)
@@ -158,6 +162,8 @@ function config.save(cfg, section)
   write_value(ns, "staffPaddingTopPx", cfg.staffPaddingTopPx)
   write_value(ns, "staffPaddingBottomPx", cfg.staffPaddingBottomPx)
   write_value(ns, "stringSpacingPx", cfg.stringSpacingPx)
+  write_value(ns, "barLineThickness", cfg.barLineThickness)
+  write_value(ns, "itemBoundaryThickness", cfg.itemBoundaryThickness)
 
   write_value(ns, "maxFret", cfg.maxFret)
   write_value(ns, "maxFrettedSpan", cfg.maxFrettedSpan)

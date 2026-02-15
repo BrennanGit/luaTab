@@ -43,13 +43,40 @@ local function draw_text_with_bg(draw_list, ctx, x, y, text, color, bg_color, pa
   reaper.ImGui_DrawList_AddText(draw_list, x, y, color, text)
 end
 
-function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx)
+local function add_boundary_time(boundaries, t)
+  if t == nil then
+    return
+  end
+  for _, existing in ipairs(boundaries) do
+    if math.abs(existing - t) < 1e-6 then
+      return
+    end
+  end
+  boundaries[#boundaries + 1] = t
+end
+
+local function boundary_x_for_bar(bar, bar_layout, boundary_t, config)
+  local eps = 1e-6
+  if boundary_t <= bar.t0 + eps then
+    return bar_layout.barlineX
+  end
+  if boundary_t >= bar.t1 - eps then
+    return bar_layout.barLeft + config.barPrefixPx + config.barContentPx + config.barGutterPx
+  end
+  local frac = (boundary_t - bar.t0) / (bar.t1 - bar.t0)
+  return bar_layout.content.x + frac * bar_layout.content.w
+end
+
+function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds)
   local col_strings = util.color_u32(0.7, 0.7, 0.7, 1)
   local col_barlines = util.color_u32(0.4, 0.4, 0.4, 1)
+  local col_item = util.color_u32(0.7, 0.7, 0.7, 1)
   local col_text = util.color_u32(1, 1, 1, 1)
   local col_dropped = util.color_u32(1, 0.25, 0.25, 1)
   local col_marker = util.color_u32(1, 0.2, 0.2, 0.18)
   local col_note_bg = util.color_u32(0.05, 0.05, 0.05, 0.85)
+  local barline_thickness = config.barLineThickness or 1.0
+  local item_thickness = config.itemBoundaryThickness or 2.5
 
   font_size = font_size or 12
 
@@ -63,12 +90,37 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
       reaper.ImGui_DrawList_AddLine(draw_list, left, y, right, y, col_strings, 1.0)
     end
 
+    local boundary_times = {}
+    if item_bounds then
+      if item_bounds.current then
+        add_boundary_time(boundary_times, item_bounds.current.t0)
+        add_boundary_time(boundary_times, item_bounds.current.t1)
+      end
+      if item_bounds.next then
+        add_boundary_time(boundary_times, item_bounds.next.t0)
+        add_boundary_time(boundary_times, item_bounds.next.t1)
+      end
+    end
+
     for k, bar_layout in ipairs(system.barLayouts) do
       local x = bar_layout.barlineX
-      reaper.ImGui_DrawList_AddLine(draw_list, x, staff.y, x, staff.bottom, col_barlines, 1.0)
+      reaper.ImGui_DrawList_AddLine(draw_list, x, staff.y, x, staff.bottom, col_barlines, barline_thickness)
 
       local bar = system.bars[k]
       if bar then
+        if #boundary_times > 0 then
+          for _, boundary_t in ipairs(boundary_times) do
+            local is_last_bar = (k == #system.barLayouts)
+            local in_range = boundary_t >= bar.t0 and boundary_t < bar.t1
+            if not in_range and is_last_bar and boundary_t == bar.t1 then
+              in_range = true
+            end
+            if in_range then
+              local bx = boundary_x_for_bar(bar, bar_layout, boundary_t, config)
+              reaper.ImGui_DrawList_AddLine(draw_list, bx, staff.y, bx, staff.bottom, col_item, item_thickness)
+            end
+          end
+        end
         if current_bar_idx ~= nil and bar.idx == current_bar_idx then
           local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx
           reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_layout.barLeft, staff.y, bar_right, staff.bottom, col_marker)
@@ -115,7 +167,7 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
     end
 
     local end_x = system.x0 + system.gutterW + (#system.barLayouts) * (config.barPrefixPx + config.barContentPx + config.barGutterPx)
-    reaper.ImGui_DrawList_AddLine(draw_list, end_x, staff.y, end_x, staff.bottom, col_barlines, 1.0)
+    reaper.ImGui_DrawList_AddLine(draw_list, end_x, staff.y, end_x, staff.bottom, col_barlines, barline_thickness)
   end
 end
 

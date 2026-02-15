@@ -79,6 +79,7 @@ local state = {
   windowInitialized = false,
   takeSource = nil,
   lastUpdateKey = nil,
+  itemBounds = nil,
 }
 
 local function get_cursor_time()
@@ -107,7 +108,7 @@ local function rebuild_data(t)
     return
   end
 
-  local take, take_source = source.get_take(t)
+  local take, take_source, current_item, next_item = source.get_take(t)
   local take_id = take and tostring(take) or nil
   if take_id ~= state.takeId then
     state.takeId = take_id
@@ -115,10 +116,16 @@ local function rebuild_data(t)
     util.log(string.format("active take id=%s source=%s", tostring(take_id), tostring(take_source)), "info")
   end
 
+  state.itemBounds = {
+    current = current_item,
+    next = next_item,
+  }
+
   if not take then
-    state.eventsByBar = {}
-    state.hasMidiTake = false
-    state.statusMessage = "No MIDI detected. Select a track with a MIDI item under the cursor."
+      state.eventsByBar = {}
+      state.hasMidiTake = false
+      state.statusMessage = "No MIDI detected. Select a track with a MIDI item under the cursor."
+      state.itemBounds = nil
     util.log_throttle("no_take", 1.5, "no active MIDI take", "info")
     return
   end
@@ -126,7 +133,14 @@ local function rebuild_data(t)
   state.hasMidiTake = true
   state.statusMessage = nil
 
-  local notes = midi.extract_notes(take, bars[1].t0, bars[#bars].t1)
+  local clip_t0 = nil
+  local clip_t1 = nil
+  if state.itemBounds and state.itemBounds.current then
+    clip_t0 = state.itemBounds.current.t0
+    clip_t1 = state.itemBounds.current.t1
+  end
+
+  local notes = midi.extract_notes(take, bars[1].t0, bars[#bars].t1, clip_t0, clip_t1)
   local events = midi.group_events(notes, cfg.groupEpsilonMs / 1000)
 
   local events_by_bar = {}
@@ -319,7 +333,7 @@ local function draw_ui()
 
     if state.hasMidiTake then
       state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
-      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar)
+      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds)
     end
 
     if reaper.ImGui_SetNextFrameWantCaptureKeyboard and reaper.ImGui_IsAnyItemActive then

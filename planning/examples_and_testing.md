@@ -49,6 +49,12 @@ A build is acceptable when:
   - No flicker/jitter from layout math
   - No overlapping text explosions (minor overlap acceptable early, but should not become unreadable)
 
+**L04: Item boundary markers**
+- Setup: place two adjacent MIDI items on a selected track; position cursor in the first item
+- Expected:
+  - Thicker vertical line at the current item start/end
+  - Upcoming item start line visible before reaching the boundary
+
 **U01: Update mode step**
 - Setup: set update mode to every 2 bars and play through 4 bars
 - Expected:
@@ -119,6 +125,12 @@ A build is acceptable when:
   - Note displayed only in bar where it starts
 - Expected (later enhancement):
   - Optional “hold/tie” marker in next bar
+
+**M05: Item trim / gap handling**
+- Setup: trim a MIDI item to create a leading gap; place cursor before the item start
+- Expected:
+  - Empty bars rendered before item start
+  - Notes outside the trimmed item range are not shown
 
 ### D) Fret Assignment / Constraints / Reduction
 

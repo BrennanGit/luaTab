@@ -108,6 +108,7 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 ### 3.3 Drawing thickness
 - `stringLineThickness` (float)
 - `barLineThickness` (float)
+- `itemBoundaryThickness` (float)
 - `beatTickThickness` (float)
 
 ### 3.4 Colors

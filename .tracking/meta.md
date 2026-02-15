@@ -1,14 +1,14 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-15 02:16 UTC
+- Last updated: 2026-02-15 03:26 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
--  - (empty)
+-  - #004-next-item-preview — Status: in-progress — Owner: agent
 - Stack:
   - (empty)
 
@@ -36,6 +36,13 @@ Format:
 -->
 
 ---
+
+- [in-progress] 004-next-item-preview — Next item preview + item barlines (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: lib/source.lua, luaTab.lua, lib/render.lua, lib/config.lua, lib/midi.lua, .tracking/004-next-item-preview.md, .tracking/architecture.md, planning/configuration.md, planning/examples_and_testing.md
+  Functions: source.get_take(), rebuild_data(), render.draw_systems(), midi.extract_notes()
+  Related: #001
 
 - [done] 003-toggle-action — Toggle toolbar action (2026-02-15) — Owner: agent
   Type: feature

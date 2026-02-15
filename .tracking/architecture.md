@@ -19,7 +19,7 @@ Last updated: 2026-02-15
 Render a live, play-aware tablature HUD for MIDI content around the play/edit cursor in REAPER using ReaImGui.
 
 ### Non-Goals
-- Preloading next items (v1 extension)
+- Full multi-item note preloading/merging
 - Tie/hold markers
 - Export or alternate fingerings
 
@@ -44,9 +44,10 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ### Data Flow (Narrative)
 - Get cursor time (play or edit)
+- Resolve current and next MIDI item boundaries
 - Build bar window for prev/next range
 - Build systems layout based on window width
-- Extract MIDI notes in bar window and group into events
+- Extract MIDI notes in bar window clamped to item bounds and group into events
 - Solve fret assignments per event with span constraints
 - Render strings, barlines, time signatures, and frets
 
