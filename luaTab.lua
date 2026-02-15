@@ -260,18 +260,18 @@ end
 local function rebuild_data(t)
   util.log_throttle("rebuild", 1.0, string.format("rebuild_data t=%.3f", t), "debug")
   local bars, current = timeline.build_bars(t, cfg.prevBars, cfg.nextBars, cfg.showFirstTimeSigInSystemGutter)
-  state.bars = bars
-  state.lastBarIdx = current
 
   if #bars == 0 then
     state.eventsByBar = {}
     state.hasMidiTake = false
     state.statusMessage = "No bars in window"
     util.log_throttle("no_bars", 1.0, "no bars in window", "debug")
+    state.bars = bars
+    state.lastBarIdx = current
     return
   end
 
-  local take, take_source, current_item, next_item = source.get_take(t)
+  local take, take_source, current_item, next_item, track = source.get_take(t)
   local take_id = take and tostring(take) or nil
   if take_id ~= state.takeId then
     state.takeId = take_id
@@ -283,6 +283,22 @@ local function rebuild_data(t)
     current = current_item,
     next = next_item,
   }
+
+  if next_item and next_item.t0 then
+    local last_bar = bars[#bars]
+    if last_bar and next_item.t0 > last_bar.t1 then
+      local next_bar_idx = timeline.get_measure_index(next_item.t0)
+      if next_bar_idx and next_bar_idx > current then
+        local needed_next = math.max(cfg.nextBars, next_bar_idx - current)
+        if needed_next ~= cfg.nextBars then
+          bars, current = timeline.build_bars(t, cfg.prevBars, needed_next, cfg.showFirstTimeSigInSystemGutter)
+        end
+      end
+    end
+  end
+
+  state.bars = bars
+  state.lastBarIdx = current
 
   if not take then
       state.eventsByBar = {}
@@ -296,14 +312,36 @@ local function rebuild_data(t)
   state.hasMidiTake = true
   state.statusMessage = nil
 
-  local clip_t0 = nil
-  local clip_t1 = nil
-  if state.itemBounds and state.itemBounds.current then
-    clip_t0 = state.itemBounds.current.t0
-    clip_t1 = state.itemBounds.current.t1
+  local window_t0 = bars[1].t0
+  local window_t1 = bars[#bars].t1
+  local items_in_window = {}
+  if track and window_t0 and window_t1 then
+    items_in_window = source.get_items_in_window(track, window_t0, window_t1)
+  end
+  if #items_in_window == 0 and take and state.itemBounds and state.itemBounds.current then
+    items_in_window = {
+      {
+        item = state.itemBounds.current.item,
+        take = take,
+        t0 = state.itemBounds.current.t0,
+        t1 = state.itemBounds.current.t1,
+      },
+    }
   end
 
-  local notes = midi.extract_notes(take, bars[1].t0, bars[#bars].t1, clip_t0, clip_t1)
+  local notes = {}
+  for _, item_info in ipairs(items_in_window) do
+    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1)
+    for _, note in ipairs(item_notes) do
+      notes[#notes + 1] = note
+    end
+  end
+  table.sort(notes, function(a, b)
+    if a.tStart == b.tStart then
+      return a.pitch > b.pitch
+    end
+    return a.tStart < b.tStart
+  end)
   local events = midi.group_events(notes, cfg.groupEpsilonMs / 1000)
 
   local events_by_bar = {}
@@ -362,6 +400,42 @@ local function compute_sweep_offset_px(t, config)
   local frac = util.clamp(beats_since_meas / cml, 0, 1)
   local bar_total = config.barPrefixPx + config.barContentPx + config.barGutterPx
   return frac * bar_total
+end
+
+local function handle_bar_click(ctx, systems, config)
+  if not (reaper.ImGui_IsMouseClicked and reaper.ImGui_GetMousePos and reaper.ImGui_IsWindowHovered) then
+    return
+  end
+  local hovered = reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_RootAndChildWindows and reaper.ImGui_HoveredFlags_RootAndChildWindows() or 0)
+  if not hovered or not reaper.ImGui_IsMouseClicked(ctx, 0) then
+    return
+  end
+  if reaper.ImGui_IsAnyItemActive and reaper.ImGui_IsAnyItemActive(ctx) then
+    return
+  end
+  if reaper.ImGui_IsAnyItemFocused and reaper.ImGui_IsAnyItemFocused(ctx) then
+    return
+  end
+
+  local mx, my = reaper.ImGui_GetMousePos(ctx)
+  local bar_w = config.barPrefixPx + config.barContentPx
+  for _, system in ipairs(systems) do
+    local y0 = system.y
+    local y1 = system.staffRect.bottom + config.staffPaddingBottomPx
+    if my >= y0 and my <= y1 then
+      for k, bar_layout in ipairs(system.barLayouts) do
+        local bar = system.bars[k]
+        if bar then
+          local x0 = bar_layout.barLeft
+          local x1 = x0 + bar_w
+          if mx >= x0 and mx <= x1 then
+            reaper.SetEditCurPos(bar.t0, true, true)
+            return
+          end
+        end
+      end
+    end
+  end
 end
 
 local function color_to_hex(color, include_alpha)
@@ -820,11 +894,35 @@ local function draw_ui()
     if state.hasMidiTake then
       state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
       render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds)
+      handle_bar_click(ctx, state.systems, cfg)
     end
 
-    if reaper.ImGui_SetNextFrameWantCaptureKeyboard and reaper.ImGui_IsAnyItemActive then
-      local wants_keyboard = reaper.ImGui_IsAnyItemActive(ctx)
+    if reaper.ImGui_SetNextFrameWantCaptureKeyboard then
+      local wants_keyboard = false
+      if reaper.ImGui_IsAnyItemActive and reaper.ImGui_IsAnyItemActive(ctx) then
+        wants_keyboard = true
+      elseif reaper.ImGui_IsAnyItemFocused and reaper.ImGui_IsAnyItemFocused(ctx) then
+        wants_keyboard = true
+      end
       reaper.ImGui_SetNextFrameWantCaptureKeyboard(ctx, wants_keyboard)
+    end
+
+    if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_Space then
+      local window_focused = true
+      if reaper.ImGui_IsWindowFocused and reaper.ImGui_FocusedFlags_RootAndChildWindows then
+        window_focused = reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows())
+      end
+      if window_focused then
+        local wants_keyboard = false
+        if reaper.ImGui_IsAnyItemActive and reaper.ImGui_IsAnyItemActive(ctx) then
+          wants_keyboard = true
+        elseif reaper.ImGui_IsAnyItemFocused and reaper.ImGui_IsAnyItemFocused(ctx) then
+          wants_keyboard = true
+        end
+        if not wants_keyboard and reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Space(), false) then
+          reaper.Main_OnCommand(40044, 0)
+        end
+      end
     end
   end
 

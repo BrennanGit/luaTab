@@ -97,6 +97,36 @@ local function build_item_info(item)
   }
 end
 
+local function collect_midi_items_in_window(track, t0, t1)
+  if not track then
+    return {}
+  end
+  local items = {}
+  local item_count = reaper.CountTrackMediaItems(track)
+  for i = 0, item_count - 1 do
+    local item = reaper.GetTrackMediaItem(track, i)
+    local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    local muted = reaper.GetMediaItemInfo_Value(item, "B_MUTE")
+    local item_end = pos + len
+    if muted == 0 and pos < t1 and item_end > t0 then
+      local take = reaper.GetActiveTake(item)
+      if take and reaper.TakeIsMIDI(take) then
+        items[#items + 1] = {
+          item = item,
+          take = take,
+          t0 = pos,
+          t1 = item_end,
+        }
+      end
+    end
+  end
+  table.sort(items, function(a, b)
+    return a.t0 < b.t0
+  end)
+  return items
+end
+
 local function get_next_track_take_after_time(t)
   local track = reaper.GetSelectedTrack(0, 0)
   if not track then
@@ -117,9 +147,9 @@ function source.get_take(t)
   local take, item, track = get_selected_track_take_at_time(t)
   if take then
     local current_info = build_item_info(item)
-    local next_item = find_next_midi_item(track, current_info.t1, item)
+    local next_item = find_next_midi_item(track, t, item)
     local next_info = build_item_info(next_item)
-    return take, "selected_track", current_info, next_info
+    return take, "selected_track", current_info, next_info, track
   end
 
   local next_take, next_item, next_track = get_next_track_take_after_time(t)
@@ -127,7 +157,7 @@ function source.get_take(t)
     local current_info = build_item_info(next_item)
     local next_after = find_next_midi_item(next_track, current_info.t1, next_item)
     local next_info = build_item_info(next_after)
-    return next_take, "selected_track_next", current_info, next_info
+    return next_take, "selected_track_next", current_info, next_info, next_track
   end
 
   local editor_take = get_active_midi_editor_take()
@@ -137,13 +167,17 @@ function source.get_take(t)
     local current_info = build_item_info(editor_item)
     local next_info = nil
     if current_info and editor_track then
-      local next_item = find_next_midi_item(editor_track, current_info.t1, editor_item)
+      local next_item = find_next_midi_item(editor_track, t, editor_item)
       next_info = build_item_info(next_item)
     end
-    return editor_take, "midi_editor", current_info, next_info
+    return editor_take, "midi_editor", current_info, next_info, editor_track
   end
 
-  return nil, "none", nil, nil
+  return nil, "none", nil, nil, nil
+end
+
+function source.get_items_in_window(track, t0, t1)
+  return collect_midi_items_in_window(track, t0, t1)
 end
 
 return source

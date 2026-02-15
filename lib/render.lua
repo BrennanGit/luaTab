@@ -72,7 +72,7 @@ local function boundary_x_for_bar(bar, bar_layout, boundary_t, config)
     return bar_layout.barlineX
   end
   if boundary_t >= bar.t1 - eps then
-    return bar_layout.barLeft + config.barPrefixPx + config.barContentPx + config.barGutterPx
+    return bar_layout.barLeft + config.barPrefixPx + config.barContentPx
   end
   local frac = (boundary_t - bar.t0) / (bar.t1 - bar.t0)
   return bar_layout.content.x + frac * bar_layout.content.w
@@ -100,6 +100,7 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
   local col_note_bg = color_from_cfg(config, "noteBg", util.color_u32(0.05, 0.05, 0.05, 0.85))
   local barline_thickness = config.barLineThickness or 1.0
   local item_thickness = config.itemBoundaryThickness or 2.5
+  local bar_body = config.barPrefixPx + config.barContentPx
 
   font_size = font_size or 12
   local fret_scale = (config.fonts and config.fonts.fretScale) or 1.0
@@ -194,7 +195,8 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
       end
     end
 
-    local end_x = system.x0 + system.gutterW + (#system.barLayouts) * (config.barPrefixPx + config.barContentPx + config.barGutterPx)
+    local bar_count = #system.barLayouts
+    local end_x = system.x0 + system.gutterW + (bar_count * bar_body) + (math.max(0, bar_count - 1) * config.barGutterPx)
     reaper.ImGui_DrawList_AddLine(draw_list, end_x, staff.y, end_x, staff.bottom, col_barlines, barline_thickness)
   end
 end

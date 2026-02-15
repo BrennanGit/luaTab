@@ -1,14 +1,16 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-15 05:56 UTC
+ - Last updated: 2026-02-15 08:20 UTC
 
 ---
 
 ## Active Task Stack
 
+## Active Task Stack
+
 - Top (current):
-  - #004-next-item-preview — Status: in-progress — Owner: agent
+  - (empty)
 - Stack:
   - (empty)
 
@@ -36,6 +38,20 @@ Format:
 -->
 
 ---
+
+ - [done] 013-bar-layout-resize — Bar layout resize fit (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/layout.lua, lib/render.lua, luaTab.lua, .tracking/013-bar-layout-resize.md
+  Functions: layout.calc_bars_per_system(), layout.build_systems(), render.draw_systems(), handle_bar_click()
+  Related: #007, #012
+
+ - [done] 012-bar-click-seek — Bar click seek (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/012-bar-click-seek.md
+  Functions: handle_bar_click()
+  Related: #004
 
 - [done] 005-settings-ui-overhaul — Settings UI overhaul (2026-02-15) — Owner: agent
   Type: feature
@@ -79,7 +95,14 @@ Format:
   Functions: config.load(), config.save(), draw_ui()
   Related: #008
 
-- [in-progress] 004-next-item-preview — Next item preview + item barlines (2026-02-15) — Owner: agent
+- [done] 011-transport-passthrough — Transport passthrough (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/011-transport-passthrough.md
+  Functions: draw_ui()
+  Related: #004
+
+- [done] 004-next-item-preview — Next item preview + item barlines (2026-02-15) — Owner: agent
   Type: feature
   Stability: experimental
   Files: lib/source.lua, luaTab.lua, lib/render.lua, lib/config.lua, lib/midi.lua, .tracking/004-next-item-preview.md, .tracking/architecture.md, planning/configuration.md, planning/examples_and_testing.md

@@ -2,7 +2,7 @@
 
 - ID: #004-next-item-preview
 - Created: 2026-02-15 02:30 UTC
-- Status: in-progress
+- Status: done
 - Type: feature
 - Stability: experimental
 - Owner: agent
@@ -19,22 +19,55 @@ Add next-item lookup on the timeline and render thicker barlines at item starts/
 - Preserve existing bar rendering and event placement.
 
 ## Acceptance Criteria
-- [ ] When an item boundary falls within the visible bar window, a thicker line is drawn at that time.
-- [ ] If a new MIDI item starts after the current one, its start line appears before the cursor reaches it.
-- [ ] Behavior remains unchanged when no MIDI item is available (message still shown).
+- [x] When an item boundary falls within the visible bar window, a thicker line is drawn at that time.
+- [x] If a new MIDI item starts after the current one, its start line appears before the cursor reaches it.
+- [x] Behavior remains unchanged when no MIDI item is available (message still shown).
 
 ## Out of Scope
 - Preloading or merging MIDI content from the next item.
 - Overlap handling for multiple simultaneous items.
 
 ## Plan
-- [ ] Add item boundary lookup (current + next) — Files: lib/source.lua, luaTab.lua — Functions: source.get_take(), rebuild_data() — Verification: manual REAPER playback across item boundary
-- [ ] Render thick item boundary lines — Files: lib/render.lua, lib/config.lua — Functions: render.draw_systems() — Verification: manual visual check with two adjacent MIDI items
-- [ ] Clamp events to item bounds — Files: lib/midi.lua, luaTab.lua — Functions: midi.extract_notes(), rebuild_data() — Verification: trim item start/end and confirm notes outside item are hidden
-- [ ] Allow preview of upcoming item when cursor is before it — Files: lib/source.lua, luaTab.lua — Functions: source.get_take(), rebuild_data() — Verification: place cursor in gap before item and confirm empty bars until item start
-- [ ] Update docs/tracking — Files: .tracking/meta.md, .tracking/004-next-item-preview.md, .tracking/architecture.md, planning/examples_and_testing.md — Functions: n/a — Verification: file review
+- [x] Add item boundary lookup (current + next) — Files: lib/source.lua, luaTab.lua — Functions: source.get_take(), rebuild_data() — Verification: manual REAPER playback across item boundary
+- [x] Render thick item boundary lines — Files: lib/render.lua, lib/config.lua — Functions: render.draw_systems() — Verification: manual visual check with two adjacent MIDI items
+- [x] Clamp events to item bounds — Files: lib/midi.lua, luaTab.lua — Functions: midi.extract_notes(), rebuild_data() — Verification: trim item start/end and confirm notes outside item are hidden
+- [x] Allow preview of upcoming item when cursor is before it — Files: lib/source.lua, luaTab.lua — Functions: source.get_take(), rebuild_data() — Verification: place cursor in gap before item and confirm empty bars until item start
+- [x] Extend bar window to include next item boundary — Files: luaTab.lua — Functions: rebuild_data() — Verification: keep cursor on current item and ensure next item boundary appears
+- [x] Update docs/tracking — Files: .tracking/meta.md, .tracking/004-next-item-preview.md, .tracking/architecture.md, planning/examples_and_testing.md — Functions: n/a — Verification: file review
 
 ## Execution Log
+
+* 2026-02-15 06:20 UTC Start-of-turn Context Recap:
+
+  * Goal: Ensure next item boundary is visible even when cursor is still on the current item
+  * Current State: Next boundary appears only after leaving the current item (window ends too soon)
+  * Blocking Issues: None
+  * Next Subtask: Extend the bar window to include the next item boundary when it is beyond nextBars
+  * Known Risks: Expanding the window could increase per-update work in large gaps
+
+* 2026-02-15 06:26 UTC Extended rebuild_data to widen the bar window when the next item boundary falls beyond the current range.
+
+* 2026-02-15 06:34 UTC Start-of-turn Context Recap:
+
+  * Goal: Show notes from all MIDI items inside the visible bar window
+  * Current State: Notes are clipped to the current item, so upcoming items are not visible
+  * Blocking Issues: None
+  * Next Subtask: Gather all MIDI items in the bar window and extract notes across them
+  * Known Risks: Multiple items on the track could increase per-update work
+
+* 2026-02-15 06:41 UTC Added multi-item note extraction within the bar window to show all notes across chopped items.
+
+* 2026-02-15 07:12 UTC Marked task complete after user confirmation.
+
+* 2026-02-15 06:10 UTC Start-of-turn Context Recap:
+
+  * Goal: Fix next item preview visibility when cursor is on an item
+  * Current State: Item boundaries render, but next item line is missing while cursor sits on current item
+  * Blocking Issues: None
+  * Next Subtask: Inspect next-item lookup timing and adjust selection logic
+  * Known Risks: Changing lookup time may surface overlapping-item boundaries
+
+* 2026-02-15 06:14 UTC Adjusted next-item lookup to use cursor time when the cursor sits on an item.
 
 * 2026-02-15 02:30 UTC Start-of-turn Context Recap:
 
@@ -136,4 +169,4 @@ Add next-item lookup on the timeline and render thicker barlines at item starts/
 
 ## Final Summary
 
-Implementation complete; manual verification in REAPER still needed.
+Item boundaries and multi-item window rendering are complete and verified in REAPER.
