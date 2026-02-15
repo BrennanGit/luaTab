@@ -1,14 +1,14 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-15 03:26 UTC
+- Last updated: 2026-02-15 05:18 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
--  - #004-next-item-preview — Status: in-progress — Owner: agent
+  - #004-next-item-preview — Status: in-progress — Owner: agent
 - Stack:
   - (empty)
 
@@ -36,6 +36,34 @@ Format:
 -->
 
 ---
+
+- [done] 005-settings-ui-overhaul — Settings UI overhaul (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/render.lua, planning/configuration.md, .tracking/005-settings-ui-overhaul.md
+  Functions: config.load(), config.save(), render.draw_systems(), draw_ui()
+  Related: #001
+
+- [done] 006-settings-popup-stability — Settings popup stability (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/006-settings-popup-stability.md
+  Functions: draw_ui(), edit_color(), cleanup()
+  Related: #005
+
+- [done] 007-settings-ui-refine — Settings UI refinement (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/render.lua, lib/util.lua, planning/configuration.md, .tracking/007-settings-ui-refine.md
+  Functions: config.load(), config.save(), render.draw_systems(), log_init(), draw_ui()
+  Related: #005
+
+- [done] 008-color-swatch-bg — Color swatches + background (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/008-color-swatch-bg.md
+  Functions: config.load(), config.save(), draw_ui()
+  Related: #007
 
 - [in-progress] 004-next-item-preview — Next item preview + item barlines (2026-02-15) — Owner: agent
   Type: feature

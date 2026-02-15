@@ -64,6 +64,30 @@ Add next-item lookup on the timeline and render thicker barlines at item starts/
 
 * 2026-02-15 03:26 UTC Updated architecture notes and added testing coverage for gaps/trim handling.
 
+* 2026-02-15 04:25 UTC Start-of-turn Context Recap:
+
+  * Goal: Address settings popup sizing/crash regression without derailing current task stack.
+  * Current State: Settings popup is narrow; Styling section crashes; toggle can get stuck on crash.
+  * Blocking Issues: None.
+  * Next Subtask: Push a small bugfix task to harden Settings UI and stale toggle recovery.
+  * Known Risks: ReaImGui color edit compatibility differences.
+
+* 2026-02-15 04:40 UTC Start-of-turn Context Recap:
+
+  * Goal: Refine Settings UI layout (playback/general split), add log path configuration, and improve color/font controls.
+  * Current State: Prev/next bars in General, log path fixed, color edits are raw RGBA sliders, fonts not configurable.
+  * Blocking Issues: None.
+  * Next Subtask: Push a settings refinement task with config + UI updates.
+  * Known Risks: Font customization depends on ReaImGui support.
+
+* 2026-02-15 05:10 UTC Start-of-turn Context Recap:
+
+  * Goal: Add background color control and improve color UI with previews.
+  * Current State: Colors are hex inputs only; no background color entry; no preview swatch.
+  * Blocking Issues: None.
+  * Next Subtask: Push a small UI refinement task for color swatches and background color.
+  * Known Risks: ReaImGui color button argument mismatch.
+
 ## Decisions
 
 * Item boundaries are drawn as thicker vertical lines spanning the staff.

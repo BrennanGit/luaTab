@@ -29,6 +29,13 @@ For offline simplicity, a simple key-value format or JSON can be used.
 
 ## 2. User-Facing Knobs (UI)
 
+### 2.0 Settings UI groups
+Settings are shown in a popup grouped into:
+- Tuning
+- Styling
+- Playback
+- General
+
 ### 2.1 Cursor follow
 - `followPlay` (bool): follow play cursor when playing
 - `followEditWhenStopped` (bool): follow edit cursor when not playing
@@ -51,12 +58,17 @@ V1:
 - `groupEpsilonMs` (float): notes starting within this time are considered simultaneous
 - `minNoteLenMs` (float, optional): ignore ultra-short notes (ornaments) if needed
 
+### 2.4.1 Logging
+- `logPath` (string): log file path
+- `logEnabled` (bool)
+- `logVerbose` (bool)
+
 ### 2.5 Tuning
 - `strings[]` list:
   - `name` (string label, e.g., G D A E)
   - `open` (MIDI pitch number, e.g., 55)
 - `sortStringsLowToHigh` button/action
-- `tuningPreset` (enum): common presets like mandolin GDAE
+- `tuningPreset` (enum): mandolin, guitar, bass, custom
 
 ### 2.6 Playability constraints
 - `maxFret` (int)
@@ -100,9 +112,9 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 - `stringSpacingPx` (default ~14)
 
 ### 3.2 Typography
-- `fontFretSize` (int)
-- `fontTimeSigSize` (int)
-- `fontSmallSize` (int)
+- `fonts.fretScale` (float)
+- `fonts.timeSigScale` (float)
+- `fonts.droppedScale` (float)
 (Implementation note: ReaImGui font handling can be left default initially.)
 
 ### 3.3 Drawing thickness
@@ -117,6 +129,18 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 - `colBarlines` (slightly stronger)
 - `colDropped` (red)
 - `colDebug` (optional)
+
+Runtime-configurable colors (via settings popup):
+- `colors.background`
+- `colors.text`
+- `colors.strings`
+- `colors.barlines`
+- `colors.itemBoundary`
+- `colors.dropped`
+- `colors.marker`
+- `colors.noteBg`
+
+Colors are edited as hex strings (RRGGBB or RRGGBBAA) with labels describing usage.
 
 Note: Colors should be converted to ImGui U32 once and cached.
 

@@ -51,10 +51,14 @@ local function log_write(path, line)
   file:close()
 end
 
-function util.log_init(base_dir, enabled, verbose)
+function util.log_init(base_dir, enabled, verbose, log_path)
   util._log.enabled = enabled and true or false
   util._log.verbose = verbose and true or false
-  util._log.path = (base_dir or ".") .. "/luaTab.log"
+  if log_path and log_path ~= "" then
+    util._log.path = log_path
+  else
+    util._log.path = (base_dir or ".") .. "/luaTab.log"
+  end
 
   if util._log.enabled then
     local header = string.format("[%s] log start\n", os.date("%Y-%m-%d %H:%M:%S"))

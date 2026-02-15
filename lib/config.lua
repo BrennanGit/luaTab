@@ -20,12 +20,25 @@ config.defaults = {
   barLineThickness = 1.0,
   itemBoundaryThickness = 2.5,
 
+  colors = {
+    background = { 0.08, 0.08, 0.08, 1.0 },
+    strings = { 0.7, 0.7, 0.7, 1.0 },
+    barlines = { 0.4, 0.4, 0.4, 1.0 },
+    itemBoundary = { 0.7, 0.7, 0.7, 1.0 },
+    text = { 1.0, 1.0, 1.0, 1.0 },
+    dropped = { 1.0, 0.25, 0.25, 1.0 },
+    marker = { 1.0, 0.2, 0.2, 0.18 },
+    noteBg = { 0.05, 0.05, 0.05, 0.85 },
+  },
+
   tuning = {
     { name = "G", open = 55 },
     { name = "D", open = 62 },
     { name = "A", open = 69 },
     { name = "E", open = 76 },
   },
+
+  tuningPreset = "mandolin",
 
   maxFret = 15,
   maxFrettedSpan = 4,
@@ -47,6 +60,13 @@ config.defaults = {
 
   logEnabled = true,
   logVerbose = false,
+  logPath = "",
+
+  fonts = {
+    fretScale = 1.0,
+    timeSigScale = 1.4,
+    droppedScale = 0.8,
+  },
 
   updateMode = "bar",
   updateStep = 1,
@@ -82,8 +102,32 @@ local function read_string(section, key, fallback)
   return fallback
 end
 
+local function read_color(section, key, fallback)
+  local r = read_number(section, key .. ".r", nil)
+  local g = read_number(section, key .. ".g", nil)
+  local b = read_number(section, key .. ".b", nil)
+  local a = read_number(section, key .. ".a", nil)
+  if r == nil and g == nil and b == nil and a == nil then
+    return fallback
+  end
+  return {
+    r or fallback[1],
+    g or fallback[2],
+    b or fallback[3],
+    a or fallback[4],
+  }
+end
+
 local function write_value(section, key, value)
   reaper.SetExtState(section, key, tostring(value), true)
+end
+
+local function write_color(section, key, color)
+  if not color then return end
+  write_value(section, key .. ".r", color[1])
+  write_value(section, key .. ".g", color[2])
+  write_value(section, key .. ".b", color[3])
+  write_value(section, key .. ".a", color[4])
 end
 
 function config.load(section)
@@ -107,6 +151,15 @@ function config.load(section)
   cfg.barLineThickness = read_number(ns, "barLineThickness", cfg.barLineThickness)
   cfg.itemBoundaryThickness = read_number(ns, "itemBoundaryThickness", cfg.itemBoundaryThickness)
 
+  cfg.colors.strings = read_color(ns, "colors.strings", cfg.colors.strings)
+  cfg.colors.barlines = read_color(ns, "colors.barlines", cfg.colors.barlines)
+  cfg.colors.itemBoundary = read_color(ns, "colors.itemBoundary", cfg.colors.itemBoundary)
+  cfg.colors.text = read_color(ns, "colors.text", cfg.colors.text)
+  cfg.colors.background = read_color(ns, "colors.background", cfg.colors.background)
+  cfg.colors.dropped = read_color(ns, "colors.dropped", cfg.colors.dropped)
+  cfg.colors.marker = read_color(ns, "colors.marker", cfg.colors.marker)
+  cfg.colors.noteBg = read_color(ns, "colors.noteBg", cfg.colors.noteBg)
+
   cfg.maxFret = read_number(ns, "maxFret", cfg.maxFret)
   cfg.maxFrettedSpan = read_number(ns, "maxFrettedSpan", cfg.maxFrettedSpan)
   cfg.maxSimul = read_number(ns, "maxSimul", cfg.maxSimul)
@@ -115,10 +168,17 @@ function config.load(section)
 
   cfg.logEnabled = read_bool(ns, "logEnabled", cfg.logEnabled)
   cfg.logVerbose = read_bool(ns, "logVerbose", cfg.logVerbose)
+  cfg.logPath = read_string(ns, "logPath", cfg.logPath)
 
   cfg.updateMode = read_string(ns, "updateMode", cfg.updateMode)
   cfg.updateStep = read_number(ns, "updateStep", cfg.updateStep)
   cfg.antidelayBeats = read_number(ns, "antidelayBeats", cfg.antidelayBeats)
+
+  cfg.tuningPreset = read_string(ns, "tuningPreset", cfg.tuningPreset)
+
+  cfg.fonts.fretScale = read_number(ns, "fonts.fretScale", cfg.fonts.fretScale)
+  cfg.fonts.timeSigScale = read_number(ns, "fonts.timeSigScale", cfg.fonts.timeSigScale)
+  cfg.fonts.droppedScale = read_number(ns, "fonts.droppedScale", cfg.fonts.droppedScale)
 
   cfg.weights.lowFret = read_number(ns, "weights.lowFret", cfg.weights.lowFret)
   cfg.weights.stayOnString = read_number(ns, "weights.stayOnString", cfg.weights.stayOnString)
@@ -165,6 +225,15 @@ function config.save(cfg, section)
   write_value(ns, "barLineThickness", cfg.barLineThickness)
   write_value(ns, "itemBoundaryThickness", cfg.itemBoundaryThickness)
 
+  write_color(ns, "colors.strings", cfg.colors and cfg.colors.strings)
+  write_color(ns, "colors.barlines", cfg.colors and cfg.colors.barlines)
+  write_color(ns, "colors.itemBoundary", cfg.colors and cfg.colors.itemBoundary)
+  write_color(ns, "colors.text", cfg.colors and cfg.colors.text)
+  write_color(ns, "colors.background", cfg.colors and cfg.colors.background)
+  write_color(ns, "colors.dropped", cfg.colors and cfg.colors.dropped)
+  write_color(ns, "colors.marker", cfg.colors and cfg.colors.marker)
+  write_color(ns, "colors.noteBg", cfg.colors and cfg.colors.noteBg)
+
   write_value(ns, "maxFret", cfg.maxFret)
   write_value(ns, "maxFrettedSpan", cfg.maxFrettedSpan)
   write_value(ns, "maxSimul", cfg.maxSimul)
@@ -173,10 +242,17 @@ function config.save(cfg, section)
 
   write_value(ns, "logEnabled", cfg.logEnabled)
   write_value(ns, "logVerbose", cfg.logVerbose)
+  write_value(ns, "logPath", cfg.logPath or "")
 
   write_value(ns, "updateMode", cfg.updateMode)
   write_value(ns, "updateStep", cfg.updateStep)
   write_value(ns, "antidelayBeats", cfg.antidelayBeats)
+
+  write_value(ns, "tuningPreset", cfg.tuningPreset or "custom")
+
+  write_value(ns, "fonts.fretScale", cfg.fonts and cfg.fonts.fretScale or 1.0)
+  write_value(ns, "fonts.timeSigScale", cfg.fonts and cfg.fonts.timeSigScale or 1.4)
+  write_value(ns, "fonts.droppedScale", cfg.fonts and cfg.fonts.droppedScale or 0.8)
 
   write_value(ns, "weights.lowFret", cfg.weights.lowFret)
   write_value(ns, "weights.stayOnString", cfg.weights.stayOnString)
