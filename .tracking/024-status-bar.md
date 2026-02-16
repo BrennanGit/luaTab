@@ -2,7 +2,7 @@
 
 - ID: #024-status-bar
 - Created: 2026-02-16 00:00 UTC
-- Status: in-progress
+- Status: done
 - Type: feature
 - Stability: experimental
 - Owner: agent
@@ -17,15 +17,23 @@ Move the status message into a small status bar that overlays the bottom of the 
 - The bar should not shift layout or consume vertical space.
 
 ## Acceptance Criteria
-- [ ] Status text appears in a small bar over the bottom content area.
-- [ ] Bar does not push the main content upward.
-- [ ] When no status message is active, the bar shows the current bar number.
+- [x] Status text appears in a small bar over the bottom content area.
+- [x] Bar does not push the main content upward.
+- [x] When no status message is active, the bar shows the current bar number.
 
 ## Plan
 - [x] Replace inline status text with overlay drawing — Files: luaTab.lua — Functions: draw_ui()
 - [x] Update tracking metadata — Files: .tracking/meta.md, .tracking/024-status-bar.md
 
 ## Execution Log
+
+* 2026-02-16 08:32 UTC Start-of-turn Context Recap:
+
+	* Goal: Close the status bar overlay task after confirming the overlay path
+	* Current State: Status bar and gear overlay render via foreground draw list
+	* Blocking Issues: None
+	* Next Subtask: Mark task complete and update tracking metadata
+	* Known Risks: Manual verification not run in REAPER UI
 
 * 2026-02-16 00:05 UTC Start-of-turn Context Recap:
 
@@ -57,6 +65,14 @@ Move the status message into a small status bar that overlays the bottom of the 
 
 * 2026-02-16 02:25 UTC Nudged overlay gear button down for better alignment.
 
+* 2026-02-16 03:10 UTC Start-of-turn Context Recap:
+
+	* Goal: Add preset save/export improvements requested by user
+	* Current State: Status bar overlay work recorded; new feature work not started
+	* Blocking Issues: None
+	* Next Subtask: Create new task for presets/export work
+	* Known Risks: None
+
 ## Decisions
 
 - None yet.
@@ -79,4 +95,6 @@ Move the status message into a small status bar that overlays the bottom of the 
 
 ## Final Summary
 
-- (pending)
+- Status bar renders as a bottom overlay with fallback to bar number when idle.
+- Overlay uses foreground draw list and does not consume layout space.
+- Verification not run (requires REAPER UI).

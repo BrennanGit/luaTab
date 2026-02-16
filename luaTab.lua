@@ -143,12 +143,23 @@ local state = {
   fretboardFocused = false,
   fretboardUndockFrames = reset_requested and 12 or 0,
   mainDockId = nil,
+  presetSave = {
+    open = false,
+    kind = nil,
+    name = "",
+    confirmOverwrite = false,
+    confirmName = nil,
+    confirmType = nil,
+    error = nil,
+  },
+  fretboardLastMode = "current",
 }
 
-local tuning_presets = {
+local default_tuning_presets = {
   {
     id = "mandolin",
     label = "Mandolin (GDAE)",
+    name = "Mandolin (GDAE)",
     tuning = {
       { name = "G", open = 55 },
       { name = "D", open = 62 },
@@ -159,6 +170,7 @@ local tuning_presets = {
   {
     id = "guitar",
     label = "Guitar (EADGBe)",
+    name = "Guitar (EADGBe)",
     tuning = {
       { name = "E", open = 40 },
       { name = "A", open = 45 },
@@ -171,6 +183,7 @@ local tuning_presets = {
   {
     id = "bass",
     label = "Bass (EADG)",
+    name = "Bass (EADG)",
     tuning = {
       { name = "E", open = 28 },
       { name = "A", open = 33 },
@@ -178,16 +191,19 @@ local tuning_presets = {
       { name = "G", open = 43 },
     },
   },
-  {
-    id = "custom",
-    label = "Custom",
-  },
 }
 
-local color_presets = {
+local custom_tuning_preset = {
+  id = "custom",
+  label = "Current (custom)",
+  name = "Current (custom)",
+}
+
+local default_color_presets = {
   {
     id = "dark",
     label = "Dark",
+    name = "Dark",
     colors = {
       background = { 0.08, 0.08, 0.08, 1.0 },
       uiText = { 0.92, 0.92, 0.92, 1.0 },
@@ -209,6 +225,7 @@ local color_presets = {
   {
     id = "light",
     label = "Light",
+    name = "Light",
     colors = {
       background = { 0.96, 0.96, 0.96, 1.0 },
       uiText = { 0.1, 0.1, 0.1, 1.0 },
@@ -229,13 +246,605 @@ local color_presets = {
   },
 }
 
-local function preset_index_for_id(preset_id)
-  for i, preset in ipairs(tuning_presets) do
+local scale_value_keys = {
+  "systemGutterPx",
+  "barPrefixPx",
+  "barContentPx",
+  "barGutterPx",
+  "systemRowGapPx",
+  "staffPaddingTopPx",
+  "staffPaddingBottomPx",
+  "stringSpacingPx",
+  "barLineThickness",
+  "itemBoundaryThickness",
+  "fretboardFrets",
+  "fretboardNoteRoundness",
+  "fretboardNoteSize",
+  "fretboardDotSize",
+  "fretboardFretThickness",
+  "fretboardStringThickness",
+}
+
+local scale_font_keys = {
+  "fretScale",
+  "timeSigScale",
+  "droppedScale",
+}
+
+local function capture_scale_values(source)
+  local scale = {}
+  for _, key in ipairs(scale_value_keys) do
+    scale[key] = source[key]
+  end
+  scale.fonts = {}
+  for _, key in ipairs(scale_font_keys) do
+    scale.fonts[key] = source.fonts and source.fonts[key] or nil
+  end
+  return scale
+end
+
+local default_style_presets = {
+  {
+    id = "default",
+    label = "Default",
+    name = "Default",
+    scale = capture_scale_values(config_mod.defaults),
+  },
+}
+
+local custom_style_preset = {
+  id = "custom",
+  label = "Current (custom)",
+  name = "Current (custom)",
+}
+
+local user_color_keys = {
+  "background",
+  "uiText",
+  "uiControlBg",
+  "strings",
+  "barlines",
+  "itemBoundary",
+  "text",
+  "dropped",
+  "marker",
+  "noteBg",
+  "fretboardBg",
+  "fretboardStrings",
+  "fretboardFrets",
+  "fretboardCurrent",
+  "fretboardNext",
+}
+
+local function read_number_ext(section, key, fallback)
+  if reaper.HasExtState(section, key) then
+    local value = tonumber(reaper.GetExtState(section, key))
+    if value ~= nil then
+      return value
+    end
+  end
+  return fallback
+end
+
+local function read_string_ext(section, key, fallback)
+  if reaper.HasExtState(section, key) then
+    local value = reaper.GetExtState(section, key)
+    if value ~= "" then
+      return value
+    end
+  end
+  return fallback
+end
+
+local function read_color_ext(section, key, fallback)
+  local r = read_number_ext(section, key .. ".r", nil)
+  local g = read_number_ext(section, key .. ".g", nil)
+  local b = read_number_ext(section, key .. ".b", nil)
+  local a = read_number_ext(section, key .. ".a", nil)
+  if r == nil and g == nil and b == nil and a == nil then
+    return fallback
+  end
+  if not fallback then
+    fallback = { 0, 0, 0, 1 }
+  end
+  return {
+    r or fallback[1],
+    g or fallback[2],
+    b or fallback[3],
+    a or fallback[4],
+  }
+end
+
+local function write_value_ext(section, key, value)
+  reaper.SetExtState(section, key, tostring(value), true)
+end
+
+local function write_color_ext(section, key, color)
+  if not color then return end
+  write_value_ext(section, key .. ".r", color[1])
+  write_value_ext(section, key .. ".g", color[2])
+  write_value_ext(section, key .. ".b", color[3])
+  write_value_ext(section, key .. ".a", color[4])
+end
+
+local function delete_value_ext(section, key)
+  if reaper.DeleteExtState then
+    reaper.DeleteExtState(section, key, true)
+  else
+    reaper.SetExtState(section, key, "", true)
+  end
+end
+
+local function delete_color_ext(section, key)
+  delete_value_ext(section, key .. ".r")
+  delete_value_ext(section, key .. ".g")
+  delete_value_ext(section, key .. ".b")
+  delete_value_ext(section, key .. ".a")
+end
+
+local function normalize_preset_name(name)
+  if not name then return "" end
+  return name:match("^%s*(.-)%s*$")
+end
+
+local function load_user_tuning_presets(section)
+  local presets = {}
+  local count = read_number_ext(section, "userPresets.tuning.count", 0)
+  for i = 1, count do
+    local name = read_string_ext(section, string.format("userPresets.tuning.%d.name", i), "")
+    local string_count = read_number_ext(section, string.format("userPresets.tuning.%d.count", i), 0)
+    local tuning = {}
+    for j = 1, string_count do
+      local string_name = read_string_ext(section, string.format("userPresets.tuning.%d.string.%d.name", i, j), "")
+      local open = read_number_ext(section, string.format("userPresets.tuning.%d.string.%d.open", i, j), nil)
+      if string_name ~= "" and open ~= nil then
+        tuning[#tuning + 1] = { name = string_name, open = open }
+      end
+    end
+    if name ~= "" and #tuning > 0 then
+      presets[#presets + 1] = { name = name, tuning = tuning }
+    end
+  end
+  return presets
+end
+
+local function load_user_color_presets(section)
+  local presets = {}
+  local count = read_number_ext(section, "userPresets.colors.count", 0)
+  for i = 1, count do
+    local name = read_string_ext(section, string.format("userPresets.colors.%d.name", i), "")
+    if name ~= "" then
+      local colors = {}
+      for _, key in ipairs(user_color_keys) do
+        local color = read_color_ext(section, string.format("userPresets.colors.%d.colors.%s", i, key), nil)
+        if color then
+          colors[key] = color
+        end
+      end
+      if next(colors) then
+        presets[#presets + 1] = { name = name, colors = colors }
+      end
+    end
+  end
+  return presets
+end
+
+local function load_user_style_presets(section)
+  local presets = {}
+  local count = read_number_ext(section, "userPresets.style.count", 0)
+  for i = 1, count do
+    local name = read_string_ext(section, string.format("userPresets.style.%d.name", i), "")
+    if name ~= "" then
+      local scale = {}
+      local has_values = false
+      for _, key in ipairs(scale_value_keys) do
+        local value = read_number_ext(section, string.format("userPresets.style.%d.%s", i, key), nil)
+        if value ~= nil then
+          scale[key] = value
+          has_values = true
+        end
+      end
+      scale.fonts = {}
+      for _, key in ipairs(scale_font_keys) do
+        local value = read_number_ext(section, string.format("userPresets.style.%d.fonts.%s", i, key), nil)
+        if value ~= nil then
+          scale.fonts[key] = value
+          has_values = true
+        end
+      end
+      if has_values then
+        presets[#presets + 1] = { name = name, scale = scale }
+      end
+    end
+  end
+  return presets
+end
+
+local function clear_user_tuning_presets(section)
+  local count = read_number_ext(section, "userPresets.tuning.count", 0)
+  local max_scan = math.max(count, 64)
+  for i = 1, max_scan do
+    local base = string.format("userPresets.tuning.%d", i)
+    local has_entry = reaper.HasExtState(section, base .. ".name") or reaper.HasExtState(section, base .. ".count")
+    if not has_entry and i > count then
+      break
+    end
+    local string_count = read_number_ext(section, base .. ".count", 0)
+    delete_value_ext(section, base .. ".name")
+    delete_value_ext(section, base .. ".count")
+    for j = 1, string_count do
+      delete_value_ext(section, string.format("%s.string.%d.name", base, j))
+      delete_value_ext(section, string.format("%s.string.%d.open", base, j))
+    end
+  end
+  delete_value_ext(section, "userPresets.tuning.count")
+end
+
+local function clear_user_color_presets(section)
+  local count = read_number_ext(section, "userPresets.colors.count", 0)
+  local max_scan = math.max(count, 64)
+  for i = 1, max_scan do
+    local base = string.format("userPresets.colors.%d", i)
+    local has_entry = reaper.HasExtState(section, base .. ".name")
+    if not has_entry and i > count then
+      break
+    end
+    delete_value_ext(section, base .. ".name")
+    for _, key in ipairs(user_color_keys) do
+      delete_color_ext(section, string.format("%s.colors.%s", base, key))
+    end
+  end
+  delete_value_ext(section, "userPresets.colors.count")
+end
+
+local function clear_user_style_presets(section)
+  local count = read_number_ext(section, "userPresets.style.count", 0)
+  local max_scan = math.max(count, 64)
+  for i = 1, max_scan do
+    local base = string.format("userPresets.style.%d", i)
+    local has_entry = reaper.HasExtState(section, base .. ".name")
+    if not has_entry and i > count then
+      break
+    end
+    delete_value_ext(section, base .. ".name")
+    for _, key in ipairs(scale_value_keys) do
+      delete_value_ext(section, string.format("%s.%s", base, key))
+    end
+    for _, key in ipairs(scale_font_keys) do
+      delete_value_ext(section, string.format("%s.fonts.%s", base, key))
+    end
+  end
+  delete_value_ext(section, "userPresets.style.count")
+end
+
+local function save_user_tuning_presets(section, presets)
+  clear_user_tuning_presets(section)
+  write_value_ext(section, "userPresets.tuning.count", #presets)
+  for i, preset in ipairs(presets) do
+    write_value_ext(section, string.format("userPresets.tuning.%d.name", i), preset.name)
+    write_value_ext(section, string.format("userPresets.tuning.%d.count", i), #preset.tuning)
+    for j, string_info in ipairs(preset.tuning) do
+      write_value_ext(section, string.format("userPresets.tuning.%d.string.%d.name", i, j), string_info.name)
+      write_value_ext(section, string.format("userPresets.tuning.%d.string.%d.open", i, j), string_info.open)
+    end
+  end
+end
+
+local function save_user_color_presets(section, presets)
+  clear_user_color_presets(section)
+  write_value_ext(section, "userPresets.colors.count", #presets)
+  for i, preset in ipairs(presets) do
+    write_value_ext(section, string.format("userPresets.colors.%d.name", i), preset.name)
+    for _, key in ipairs(user_color_keys) do
+      local color = preset.colors and preset.colors[key] or nil
+      if color then
+        write_color_ext(section, string.format("userPresets.colors.%d.colors.%s", i, key), color)
+      end
+    end
+  end
+end
+
+local function save_user_style_presets(section, presets)
+  clear_user_style_presets(section)
+  write_value_ext(section, "userPresets.style.count", #presets)
+  for i, preset in ipairs(presets) do
+    write_value_ext(section, string.format("userPresets.style.%d.name", i), preset.name)
+    local scale = preset.scale or {}
+    for _, key in ipairs(scale_value_keys) do
+      local value = scale[key]
+      if value ~= nil then
+        write_value_ext(section, string.format("userPresets.style.%d.%s", i, key), value)
+      end
+    end
+    local fonts = scale.fonts or {}
+    for _, key in ipairs(scale_font_keys) do
+      local value = fonts[key]
+      if value ~= nil then
+        write_value_ext(section, string.format("userPresets.style.%d.fonts.%s", i, key), value)
+      end
+    end
+  end
+end
+
+local function build_preset_labels(presets)
+  local labels = {}
+  for _, preset in ipairs(presets) do
+    labels[#labels + 1] = preset.label or preset.name or preset.id
+  end
+  return table.concat(labels, "\0") .. "\0"
+end
+
+local user_tuning_presets = load_user_tuning_presets(SECTION)
+local user_color_presets = load_user_color_presets(SECTION)
+local user_style_presets = load_user_style_presets(SECTION)
+local tuning_presets = {}
+local color_presets = {}
+local style_presets = {}
+local tuning_labels = ""
+local color_labels = ""
+local style_labels = ""
+
+local function rebuild_preset_lists()
+  tuning_presets = {}
+  for _, preset in ipairs(default_tuning_presets) do
+    tuning_presets[#tuning_presets + 1] = preset
+  end
+  for _, preset in ipairs(user_tuning_presets) do
+    tuning_presets[#tuning_presets + 1] = {
+      id = "user:" .. preset.name,
+      label = "User: " .. preset.name,
+      name = preset.name,
+      tuning = util.copy_table(preset.tuning),
+    }
+  end
+  if cfg.tuningPreset == "custom" then
+    tuning_presets[#tuning_presets + 1] = custom_tuning_preset
+  end
+  tuning_labels = build_preset_labels(tuning_presets)
+
+  color_presets = {}
+  for _, preset in ipairs(default_color_presets) do
+    color_presets[#color_presets + 1] = preset
+  end
+  for _, preset in ipairs(user_color_presets) do
+    color_presets[#color_presets + 1] = {
+      id = "user:" .. preset.name,
+      label = "User: " .. preset.name,
+      name = preset.name,
+      colors = util.copy_table(preset.colors),
+    }
+  end
+  color_labels = build_preset_labels(color_presets)
+
+  style_presets = {}
+  for _, preset in ipairs(default_style_presets) do
+    style_presets[#style_presets + 1] = preset
+  end
+  for _, preset in ipairs(user_style_presets) do
+    style_presets[#style_presets + 1] = {
+      id = "user:" .. preset.name,
+      label = "User: " .. preset.name,
+      name = preset.name,
+      scale = util.copy_table(preset.scale),
+    }
+  end
+  if cfg.stylePreset == "custom" then
+    style_presets[#style_presets + 1] = custom_style_preset
+  end
+  style_labels = build_preset_labels(style_presets)
+end
+
+rebuild_preset_lists()
+
+local function find_user_preset_index(presets, name)
+  local target = name:lower()
+  for i, preset in ipairs(presets) do
+    if preset.name and preset.name:lower() == target then
+      return i
+    end
+  end
+  return nil
+end
+
+local function preset_name_conflict(kind, name)
+  local target = name:lower()
+  if kind == "tuning" then
+    for _, preset in ipairs(default_tuning_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "default", label = preset.label }
+      end
+    end
+    if custom_tuning_preset.name and custom_tuning_preset.name:lower() == target then
+      return { type = "default", label = custom_tuning_preset.label }
+    end
+    for i, preset in ipairs(user_tuning_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "user", index = i, label = preset.name }
+      end
+    end
+  elseif kind == "color" then
+    for _, preset in ipairs(default_color_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "default", label = preset.label }
+      end
+    end
+    for i, preset in ipairs(user_color_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "user", index = i, label = preset.name }
+      end
+    end
+  elseif kind == "style" then
+    for _, preset in ipairs(default_style_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "default", label = preset.label }
+      end
+    end
+    if custom_style_preset.name and custom_style_preset.name:lower() == target then
+      return { type = "default", label = custom_style_preset.label }
+    end
+    for i, preset in ipairs(user_style_presets) do
+      if preset.name and preset.name:lower() == target then
+        return { type = "user", index = i, label = preset.name }
+      end
+    end
+  end
+  return nil
+end
+
+local function capture_color_preset(colors)
+  local snapshot = {}
+  for _, key in ipairs(user_color_keys) do
+    if colors and colors[key] then
+      snapshot[key] = util.copy_table(colors[key])
+    end
+  end
+  return snapshot
+end
+
+local function capture_style_preset(source)
+  return capture_scale_values(source)
+end
+
+local apply_settings_change
+
+local function save_current_preset(kind, name)
+  if kind == "tuning" then
+    local preset = { name = name, tuning = util.copy_table(cfg.tuning) }
+    local index = find_user_preset_index(user_tuning_presets, name)
+    if index then
+      user_tuning_presets[index] = preset
+    else
+      user_tuning_presets[#user_tuning_presets + 1] = preset
+    end
+    save_user_tuning_presets(SECTION, user_tuning_presets)
+    cfg.tuningPreset = "user:" .. name
+  elseif kind == "color" then
+    local preset = { name = name, colors = capture_color_preset(cfg.colors) }
+    local index = find_user_preset_index(user_color_presets, name)
+    if index then
+      user_color_presets[index] = preset
+    else
+      user_color_presets[#user_color_presets + 1] = preset
+    end
+    save_user_color_presets(SECTION, user_color_presets)
+    cfg.colorPreset = "user:" .. name
+  elseif kind == "style" then
+    local preset = { name = name, scale = capture_style_preset(cfg) }
+    local index = find_user_preset_index(user_style_presets, name)
+    if index then
+      user_style_presets[index] = preset
+    else
+      user_style_presets[#user_style_presets + 1] = preset
+    end
+    save_user_style_presets(SECTION, user_style_presets)
+    cfg.stylePreset = "user:" .. name
+  end
+  rebuild_preset_lists()
+  apply_settings_change()
+end
+
+local function open_preset_save(kind)
+  state.presetSave.kind = kind
+  state.presetSave.name = ""
+  state.presetSave.confirmOverwrite = false
+  state.presetSave.confirmName = nil
+  state.presetSave.confirmType = nil
+  state.presetSave.error = nil
+  state.presetSave.open = true
+end
+
+local function draw_preset_save_modal(ctx)
+  if state.presetSave.open then
+    if reaper.ImGui_SetNextWindowSize and reaper.ImGui_Cond_Appearing then
+      reaper.ImGui_SetNextWindowSize(ctx, 720, 360, reaper.ImGui_Cond_Appearing())
+    end
+    reaper.ImGui_OpenPopup(ctx, "Save preset")
+    state.presetSave.open = false
+  end
+
+  if not reaper.ImGui_BeginPopupModal(ctx, "Save preset", true, 0) then
+    return
+  end
+
+  local kind_label = "color"
+  if state.presetSave.kind == "tuning" then
+    kind_label = "tuning"
+  elseif state.presetSave.kind == "style" then
+    kind_label = "style"
+  end
+  reaper.ImGui_Text(ctx, string.format("Save current %s as a preset.", kind_label))
+
+  local rv
+  rv, state.presetSave.name = reaper.ImGui_InputText(ctx, "Name", state.presetSave.name or "")
+  if rv then
+    state.presetSave.confirmOverwrite = false
+    state.presetSave.confirmName = nil
+    state.presetSave.confirmType = nil
+    state.presetSave.error = nil
+  end
+
+  local trimmed = normalize_preset_name(state.presetSave.name)
+  local conflict = trimmed ~= "" and preset_name_conflict(state.presetSave.kind, trimmed) or nil
+  if conflict then
+    if conflict.type == "user" then
+      reaper.ImGui_Text(ctx, "A user preset with this name already exists.")
+    else
+      reaper.ImGui_Text(ctx, "A default preset uses this name.")
+    end
+  end
+
+  if state.presetSave.confirmOverwrite and state.presetSave.confirmName then
+    if state.presetSave.confirmType == "user" then
+      reaper.ImGui_Text(ctx, "Click Save again to overwrite it.")
+    else
+      reaper.ImGui_Text(ctx, "Click Save again to store a user preset with this name.")
+    end
+  end
+
+  if state.presetSave.error then
+    reaper.ImGui_Text(ctx, state.presetSave.error)
+  end
+
+  if reaper.ImGui_Button(ctx, "Save") then
+    if trimmed == "" then
+      state.presetSave.error = "Enter a preset name."
+    else
+      if conflict and (not state.presetSave.confirmOverwrite or state.presetSave.confirmName ~= trimmed) then
+        state.presetSave.confirmOverwrite = true
+        state.presetSave.confirmName = trimmed
+        state.presetSave.confirmType = conflict.type
+      else
+        save_current_preset(state.presetSave.kind, trimmed)
+        state.presetSave.confirmOverwrite = false
+        state.presetSave.confirmName = nil
+        state.presetSave.confirmType = nil
+        state.presetSave.error = nil
+        reaper.ImGui_CloseCurrentPopup(ctx)
+      end
+    end
+  end
+  reaper.ImGui_SameLine(ctx)
+  if reaper.ImGui_Button(ctx, "Cancel") then
+    reaper.ImGui_CloseCurrentPopup(ctx)
+  end
+
+  reaper.ImGui_EndPopup(ctx)
+end
+
+local function preset_index_for_id(presets, preset_id, fallback_id)
+  for i, preset in ipairs(presets) do
     if preset.id == preset_id then
       return i
     end
   end
-  return #tuning_presets
+  if fallback_id then
+    for i, preset in ipairs(presets) do
+      if preset.id == fallback_id then
+        return i
+      end
+    end
+  end
+  return 1
 end
 
 local function apply_tuning_preset(cfg, preset)
@@ -249,12 +858,7 @@ local function apply_tuning_preset(cfg, preset)
 end
 
 local function color_preset_index(preset_id)
-  for i, preset in ipairs(color_presets) do
-    if preset.id == preset_id then
-      return i
-    end
-  end
-  return 1
+  return preset_index_for_id(color_presets, preset_id, "dark")
 end
 
 local function apply_color_preset(cfg, preset)
@@ -266,6 +870,34 @@ local function apply_color_preset(cfg, preset)
   end
   cfg.colorPreset = preset.id
   state.colorHex = {}
+  return true
+end
+
+local function style_preset_index(preset_id)
+  return preset_index_for_id(style_presets, preset_id, "default")
+end
+
+local function apply_style_preset(cfg, preset)
+  if not preset or not preset.scale then
+    return false
+  end
+  for _, key in ipairs(scale_value_keys) do
+    local value = preset.scale[key]
+    if value ~= nil then
+      cfg[key] = value
+    end
+  end
+  if not cfg.fonts then
+    cfg.fonts = {}
+  end
+  local fonts = preset.scale.fonts or {}
+  for _, key in ipairs(scale_font_keys) do
+    local value = fonts[key]
+    if value ~= nil then
+      cfg.fonts[key] = value
+    end
+  end
+  cfg.stylePreset = preset.id
   return true
 end
 
@@ -736,6 +1368,69 @@ local function draw_fretboard_popup(t, current_bar)
           state.fretboardUndockFrames = 12
         end
       end
+      local header_changed = false
+      local mode_labels = "Only current note\0Current note + next N notes\0Current note + current bar + next N bars\0"
+      local mode_values = { "current", "next_notes", "next_bars" }
+      local mode_index = 0
+      for i, mode in ipairs(mode_values) do
+        if mode == cfg.fretboardMode then
+          mode_index = i - 1
+          break
+        end
+      end
+      local rv
+      reaper.ImGui_Text(ctx, "Mode")
+      reaper.ImGui_SameLine(ctx)
+      reaper.ImGui_SetNextItemWidth(ctx, 240)
+      rv, mode_index = reaper.ImGui_Combo(ctx, "##FretboardMode", mode_index, mode_labels)
+      if rv then
+        cfg.fretboardMode = mode_values[mode_index + 1] or "current"
+        state.fretboardLastMode = cfg.fretboardMode
+        header_changed = true
+      end
+
+      if cfg.fretboardMode == "next_notes" then
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_Text(ctx, "Display next notes")
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_SetNextItemWidth(ctx, 160)
+        rv, cfg.fretboardNextCount = edit_int(ctx, "##FretboardNextNotes", cfg.fretboardNextCount, 0, 128)
+        header_changed = header_changed or rv
+      elseif cfg.fretboardMode == "next_bars" then
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_Text(ctx, "Display next bars")
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_SetNextItemWidth(ctx, 160)
+        rv, cfg.fretboardNextBars = edit_int(ctx, "##FretboardNextBars", cfg.fretboardNextBars, 0, 32)
+        header_changed = header_changed or rv
+      end
+
+      if cfg.fretboardMode == "next_notes" or cfg.fretboardMode == "next_bars" then
+        local style_labels = "Outline only\0Outline + shade\0Outline + ramp\0"
+        local style_values = { "outline", "outline_shade", "outline_ramp" }
+        local style_index = 0
+        for i, style in ipairs(style_values) do
+          if style == cfg.fretboardNextStyle then
+            style_index = i - 1
+            break
+          end
+        end
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_Text(ctx, "Next notes style")
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_SetNextItemWidth(ctx, 200)
+        rv, style_index = reaper.ImGui_Combo(ctx, "##FretboardNextStyle", style_index, style_labels)
+        if rv then
+          cfg.fretboardNextStyle = style_values[style_index + 1] or "outline"
+          header_changed = true
+        end
+      end
+
+      if header_changed then
+        apply_settings_change()
+      end
+
+      reaper.ImGui_Separator(ctx)
       local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
       local x, y = reaper.ImGui_GetCursorScreenPos(ctx)
       local w, h = reaper.ImGui_GetContentRegionAvail(ctx)
@@ -752,9 +1447,101 @@ local function draw_fretboard_popup(t, current_bar)
   end
 end
 
-local function apply_settings_change()
+local function format_settings_export(cfg)
+  local function fmt(value)
+    local t = type(value)
+    if t == "string" then
+      return string.format("%q", value)
+    elseif t == "boolean" then
+      return value and "true" or "false"
+    elseif t == "number" then
+      return tostring(value)
+    end
+    return "nil"
+  end
+
+  local lines = {}
+  lines[#lines + 1] = "luaTab_settings = {"
+  lines[#lines + 1] = string.format("  followPlay = %s,", fmt(cfg.followPlay))
+  lines[#lines + 1] = string.format("  followEditWhenStopped = %s,", fmt(cfg.followEditWhenStopped))
+  lines[#lines + 1] = string.format("  prevBars = %s,", fmt(cfg.prevBars))
+  lines[#lines + 1] = string.format("  nextBars = %s,", fmt(cfg.nextBars))
+  lines[#lines + 1] = string.format("  systemGutterPx = %s,", fmt(cfg.systemGutterPx))
+  lines[#lines + 1] = string.format("  barPrefixPx = %s,", fmt(cfg.barPrefixPx))
+  lines[#lines + 1] = string.format("  barContentPx = %s,", fmt(cfg.barContentPx))
+  lines[#lines + 1] = string.format("  barGutterPx = %s,", fmt(cfg.barGutterPx))
+  lines[#lines + 1] = string.format("  systemRowGapPx = %s,", fmt(cfg.systemRowGapPx))
+  lines[#lines + 1] = string.format("  staffPaddingTopPx = %s,", fmt(cfg.staffPaddingTopPx))
+  lines[#lines + 1] = string.format("  staffPaddingBottomPx = %s,", fmt(cfg.staffPaddingBottomPx))
+  lines[#lines + 1] = string.format("  stringSpacingPx = %s,", fmt(cfg.stringSpacingPx))
+  lines[#lines + 1] = string.format("  barLineThickness = %s,", fmt(cfg.barLineThickness))
+  lines[#lines + 1] = string.format("  itemBoundaryThickness = %s,", fmt(cfg.itemBoundaryThickness))
+  lines[#lines + 1] = "  colors = {"
+  for _, key in ipairs(user_color_keys) do
+    local color = cfg.colors and cfg.colors[key]
+    if color then
+      lines[#lines + 1] = string.format(
+        "    %s = { %.4f, %.4f, %.4f, %.4f },",
+        key,
+        color[1] or 0,
+        color[2] or 0,
+        color[3] or 0,
+        color[4] or 1
+      )
+    end
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = string.format("  colorPreset = %s,", fmt(cfg.colorPreset))
+  lines[#lines + 1] = string.format("  stylePreset = %s,", fmt(cfg.stylePreset))
+  lines[#lines + 1] = "  tuning = {"
+  for _, string_info in ipairs(cfg.tuning or {}) do
+    lines[#lines + 1] = string.format("    { name = %q, open = %d },", string_info.name, string_info.open)
+  end
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = string.format("  tuningPreset = %s,", fmt(cfg.tuningPreset))
+  lines[#lines + 1] = string.format("  maxFret = %s,", fmt(cfg.maxFret))
+  lines[#lines + 1] = string.format("  maxFrettedSpan = %s,", fmt(cfg.maxFrettedSpan))
+  lines[#lines + 1] = string.format("  maxSimul = %s,", fmt(cfg.maxSimul))
+  lines[#lines + 1] = "  weights = {"
+  lines[#lines + 1] = string.format("    lowFret = %s,", fmt(cfg.weights.lowFret))
+  lines[#lines + 1] = string.format("    stayOnString = %s,", fmt(cfg.weights.stayOnString))
+  lines[#lines + 1] = string.format("    stringJump = %s,", fmt(cfg.weights.stringJump))
+  lines[#lines + 1] = string.format("    fretJump = %s,", fmt(cfg.weights.fretJump))
+  lines[#lines + 1] = string.format("    highFret = %s,", fmt(cfg.weights.highFret))
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = string.format("  reducePreferHighest = %s,", fmt(cfg.reducePreferHighest))
+  lines[#lines + 1] = string.format("  showFirstTimeSigInSystemGutter = %s,", fmt(cfg.showFirstTimeSigInSystemGutter))
+  lines[#lines + 1] = string.format("  preloadSeconds = %s,", fmt(cfg.preloadSeconds))
+  lines[#lines + 1] = string.format("  groupEpsilonMs = %s,", fmt(cfg.groupEpsilonMs))
+  lines[#lines + 1] = string.format("  logEnabled = %s,", fmt(cfg.logEnabled))
+  lines[#lines + 1] = string.format("  logVerbose = %s,", fmt(cfg.logVerbose))
+  lines[#lines + 1] = string.format("  logPath = %s,", fmt(cfg.logPath or ""))
+  lines[#lines + 1] = "  fonts = {"
+  lines[#lines + 1] = string.format("    fretScale = %s,", fmt(cfg.fonts.fretScale))
+  lines[#lines + 1] = string.format("    timeSigScale = %s,", fmt(cfg.fonts.timeSigScale))
+  lines[#lines + 1] = string.format("    droppedScale = %s,", fmt(cfg.fonts.droppedScale))
+  lines[#lines + 1] = "  },"
+  lines[#lines + 1] = string.format("  updateMode = %s,", fmt(cfg.updateMode))
+  lines[#lines + 1] = string.format("  updateStep = %s,", fmt(cfg.updateStep))
+  lines[#lines + 1] = string.format("  antidelayBeats = %s,", fmt(cfg.antidelayBeats))
+  lines[#lines + 1] = string.format("  fretboardMode = %s,", fmt(cfg.fretboardMode))
+  lines[#lines + 1] = string.format("  fretboardNextCount = %s,", fmt(cfg.fretboardNextCount))
+  lines[#lines + 1] = string.format("  fretboardNextBars = %s,", fmt(cfg.fretboardNextBars))
+  lines[#lines + 1] = string.format("  fretboardNextStyle = %s,", fmt(cfg.fretboardNextStyle))
+  lines[#lines + 1] = string.format("  fretboardFrets = %s,", fmt(cfg.fretboardFrets))
+  lines[#lines + 1] = string.format("  fretboardNoteRoundness = %s,", fmt(cfg.fretboardNoteRoundness))
+  lines[#lines + 1] = string.format("  fretboardNoteSize = %s,", fmt(cfg.fretboardNoteSize))
+  lines[#lines + 1] = string.format("  fretboardDotSize = %s,", fmt(cfg.fretboardDotSize))
+  lines[#lines + 1] = string.format("  fretboardFretThickness = %s,", fmt(cfg.fretboardFretThickness))
+  lines[#lines + 1] = string.format("  fretboardStringThickness = %s,", fmt(cfg.fretboardStringThickness))
+  lines[#lines + 1] = "}"
+  return table.concat(lines, "\n")
+end
+
+apply_settings_change = function()
   clamp_config(cfg)
   config_mod.save(cfg, "luaTab")
+  rebuild_preset_lists()
   util.log_init(script_dir, cfg.logEnabled, cfg.logVerbose, cfg.logPath)
   util.log("settings changed", "info")
   rebuild_data(get_cursor_time())
@@ -768,6 +1555,10 @@ local function reset_config_to_defaults()
   if not cfg.logPath or cfg.logPath == "" then
     cfg.logPath = script_dir .. "/luaTab.log"
   end
+  user_tuning_presets = load_user_tuning_presets(SECTION)
+  user_color_presets = load_user_color_presets(SECTION)
+  user_style_presets = load_user_style_presets(SECTION)
+  rebuild_preset_lists()
   state.colorHex = {}
   state.logPathBuf = nil
   state.windowInitialized = false
@@ -878,8 +1669,8 @@ local function draw_ui()
 
     reaper.ImGui_Text(ctx, "Tuning")
     reaper.ImGui_SameLine(ctx)
-    local preset_labels = "Mandolin (GDAE)\0Guitar (EADGBe)\0Bass (EADG)\0Custom\0"
-    local preset_index = preset_index_for_id(cfg.tuningPreset or "custom") - 1
+    local preset_labels = tuning_labels
+    local preset_index = preset_index_for_id(tuning_presets, cfg.tuningPreset or "custom", "custom") - 1
     reaper.ImGui_SetNextItemWidth(ctx, 190)
     rv, preset_index = reaper.ImGui_Combo(ctx, "##TuningPreset", preset_index, preset_labels)
     if rv then
@@ -895,10 +1686,10 @@ local function draw_ui()
     reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Colors")
     reaper.ImGui_SameLine(ctx)
-    local color_labels = "Dark\0Light\0"
+    local color_preset_labels = color_labels
     local color_index = color_preset_index(cfg.colorPreset or "dark") - 1
     reaper.ImGui_SetNextItemWidth(ctx, 120)
-    rv, color_index = reaper.ImGui_Combo(ctx, "##ColorPreset", color_index, color_labels)
+    rv, color_index = reaper.ImGui_Combo(ctx, "##ColorPreset", color_index, color_preset_labels)
     if rv then
       local preset = color_presets[color_index + 1]
       if apply_color_preset(cfg, preset) then
@@ -907,37 +1698,42 @@ local function draw_ui()
     end
 
     reaper.ImGui_SameLine(ctx)
-    reaper.ImGui_Text(ctx, "Fretboard")
+    reaper.ImGui_Text(ctx, "Style")
     reaper.ImGui_SameLine(ctx)
-    local mode_labels = "Hidden\0Only current note\0Current note + next N notes\0Current note + current bar + next N bars\0"
-    local mode_values = { "hidden", "current", "next_notes", "next_bars" }
-    local mode_index = 0
-    for i, mode in ipairs(mode_values) do
-      if mode == cfg.fretboardMode then
-        mode_index = i - 1
-        break
+    local style_preset_labels = style_labels
+    local style_index = style_preset_index(cfg.stylePreset or "default") - 1
+    reaper.ImGui_SetNextItemWidth(ctx, 140)
+    rv, style_index = reaper.ImGui_Combo(ctx, "##StylePreset", style_index, style_preset_labels)
+    if rv then
+      local preset = style_presets[style_index + 1]
+      if apply_style_preset(cfg, preset) then
+        quick_changed = true
       end
     end
-    reaper.ImGui_SetNextItemWidth(ctx, 220)
-    rv, mode_index = reaper.ImGui_Combo(ctx, "##FretboardMode", mode_index, mode_labels)
-    if rv then
-      cfg.fretboardMode = mode_values[mode_index + 1] or "hidden"
+
+    reaper.ImGui_SameLine(ctx)
+    local fretboard_label = cfg.fretboardMode == "hidden" and "Show fretboard" or "Hide fretboard"
+    if reaper.ImGui_Button(ctx, fretboard_label) then
+      if cfg.fretboardMode == "hidden" then
+        cfg.fretboardMode = state.fretboardLastMode or "current"
+      else
+        state.fretboardLastMode = cfg.fretboardMode
+        cfg.fretboardMode = "hidden"
+      end
       quick_changed = true
     end
 
-    reaper.ImGui_Text(ctx, "Bars")
-    reaper.ImGui_SameLine(ctx)
-    reaper.ImGui_SetNextItemWidth(ctx, 90)
-    rv, cfg.prevBars = edit_int(ctx, "##PrevBars", cfg.prevBars, 0, 64)
-    quick_changed = quick_changed or rv
-    reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Prev")
     reaper.ImGui_SameLine(ctx)
-    reaper.ImGui_SetNextItemWidth(ctx, 90)
-    rv, cfg.nextBars = edit_int(ctx, "##NextBars", cfg.nextBars, 0, 64)
+    reaper.ImGui_SetNextItemWidth(ctx, 50)
+    rv, cfg.prevBars = edit_int(ctx, "##PrevBars", cfg.prevBars, 0, 8)
     quick_changed = quick_changed or rv
     reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Next")
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_SetNextItemWidth(ctx, 50)
+    rv, cfg.nextBars = edit_int(ctx, "##NextBars", cfg.nextBars, 0, 64)
+    quick_changed = quick_changed or rv
 
     reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Update")
@@ -981,10 +1777,69 @@ local function draw_ui()
       local settings_changed = false
       local settings_reset = false
       local rv
+      local header_flags = reaper.ImGui_TreeNodeFlags_DefaultOpen and reaper.ImGui_TreeNodeFlags_DefaultOpen() or 0
 
-      if reaper.ImGui_CollapsingHeader(ctx, "Tuning", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+      if reaper.ImGui_CollapsingHeader(ctx, "General", header_flags) then
+        rv, cfg.logEnabled = reaper.ImGui_Checkbox(ctx, "Logging", cfg.logEnabled)
+        settings_changed = settings_changed or rv
+        rv, cfg.logVerbose = reaper.ImGui_Checkbox(ctx, "Verbose logging", cfg.logVerbose)
+        settings_changed = settings_changed or rv
+
+        if not state.logPathBuf then
+          state.logPathBuf = cfg.logPath
+        end
+        reaper.ImGui_SetNextItemWidth(ctx, 320)
+        rv, state.logPathBuf = reaper.ImGui_InputText(ctx, "Log file", state.logPathBuf)
+        if rv then
+          cfg.logPath = state.logPathBuf
+          settings_changed = true
+        end
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "Reset default") then
+          cfg.logPath = script_dir .. "/luaTab.log"
+          state.logPathBuf = cfg.logPath
+          settings_changed = true
+        end
+
+        if cfg.logEnabled then
+          reaper.ImGui_Text(ctx, string.format("Log: %s", util.log_path() or "(none)"))
+        end
+        if state.takeSource then
+          reaper.ImGui_Text(ctx, string.format("Source: %s", state.takeSource))
+        end
+
+        if reaper.ImGui_Button(ctx, "Export settings") then
+          local export = format_settings_export(cfg)
+          if reaper.ShowConsoleMsg then
+            reaper.ShowConsoleMsg("\n-- luaTab settings export --\n")
+            reaper.ShowConsoleMsg(export .. "\n")
+          end
+        end
+
+        if reaper.ImGui_Button(ctx, "Reset all settings") then
+          reaper.ImGui_OpenPopup(ctx, "Reset settings")
+        end
+        if reaper.ImGui_BeginPopupModal(ctx, "Reset settings", true, 0) then
+          reaper.ImGui_Text(ctx, "Reset all settings to defaults?")
+          reaper.ImGui_Text(ctx, "This cannot be undone.")
+          if reaper.ImGui_Button(ctx, "Reset now") then
+            reset_config_to_defaults()
+            settings_changed = false
+            settings_reset = true
+            reaper.ImGui_CloseCurrentPopup(ctx)
+          end
+          reaper.ImGui_SameLine(ctx)
+          if reaper.ImGui_Button(ctx, "Cancel") then
+            reaper.ImGui_CloseCurrentPopup(ctx)
+          end
+          reaper.ImGui_EndPopup(ctx)
+        end
+      end
+
+      if reaper.ImGui_CollapsingHeader(ctx, "Tab", header_flags) then
         local tuning_changed = false
-        for i, string_info in ipairs(cfg.tuning) do
+        for i = #cfg.tuning, 1, -1 do
+          local string_info = cfg.tuning[i]
           reaper.ImGui_PushID(ctx, i)
           reaper.ImGui_SetNextItemWidth(ctx, 80)
           rv, string_info.name = reaper.ImGui_InputText(ctx, "Name", string_info.name)
@@ -1012,6 +1867,16 @@ local function draw_ui()
           cfg.tuningPreset = "custom"
           settings_changed = true
         end
+
+        if reaper.ImGui_Button(ctx, "Save current as preset") then
+          open_preset_save("tuning")
+        end
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Grouping")
+        reaper.ImGui_SetNextItemWidth(ctx, 160)
+        rv, cfg.groupEpsilonMs = edit_float(ctx, "Group epsilon (ms)", cfg.groupEpsilonMs, 0, 100)
+        settings_changed = settings_changed or rv
 
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Text(ctx, "Playability")
@@ -1044,29 +1909,63 @@ local function draw_ui()
         settings_changed = settings_changed or rv
       end
 
-      if reaper.ImGui_CollapsingHeader(ctx, "Styling", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+      if reaper.ImGui_CollapsingHeader(ctx, "Playback", header_flags) then
+        rv, cfg.followPlay = reaper.ImGui_Checkbox(ctx, "Follow play cursor", cfg.followPlay)
+        settings_changed = settings_changed or rv
+        rv, cfg.followEditWhenStopped = reaper.ImGui_Checkbox(ctx, "Follow edit cursor", cfg.followEditWhenStopped)
+        settings_changed = settings_changed or rv
+
+        if cfg.updateMode == "step" then
+          reaper.ImGui_SetNextItemWidth(ctx, 120)
+          rv, cfg.updateStep = edit_int(ctx, "Step", cfg.updateStep, 1, 64)
+          settings_changed = settings_changed or rv
+        end
+
+        reaper.ImGui_SetNextItemWidth(ctx, 120)
+        rv, cfg.antidelayBeats = edit_int(ctx, "Antidelay beats", cfg.antidelayBeats, 0, 64)
+        settings_changed = settings_changed or rv
+      end
+
+      if reaper.ImGui_CollapsingHeader(ctx, "Styling", header_flags) then
+        local scale_changed = false
+
+        if reaper.ImGui_Button(ctx, "Save colors as preset") then
+          open_preset_save("color")
+        end
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "Save style as preset") then
+          open_preset_save("style")
+        end
+
         reaper.ImGui_Text(ctx, "Layout")
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.systemGutterPx = edit_int(ctx, "System gutter", cfg.systemGutterPx, 0, 300)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.barPrefixPx = edit_int(ctx, "Bar prefix", cfg.barPrefixPx, 0, 300)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.barContentPx = edit_int(ctx, "Bar content", cfg.barContentPx, 10, 600)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.barGutterPx = edit_int(ctx, "Bar gutter", cfg.barGutterPx, 0, 120)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.systemRowGapPx = edit_int(ctx, "Row gap", cfg.systemRowGapPx, 0, 120)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.staffPaddingTopPx = edit_int(ctx, "Staff pad top", cfg.staffPaddingTopPx, 0, 80)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.staffPaddingBottomPx = edit_int(ctx, "Staff pad bottom", cfg.staffPaddingBottomPx, 0, 80)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Text(ctx, "Background")
@@ -1087,6 +1986,7 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.stringSpacingPx = edit_int(ctx, "String spacing", cfg.stringSpacingPx, 6, 40)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         draw_color_swatch(ctx, cfg.colors.strings, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Strings (staff lines)", "strings", cfg.colors.strings, true) or settings_changed
@@ -1096,6 +1996,7 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.barLineThickness = edit_float(ctx, "Barline thickness", cfg.barLineThickness, 0.5, 6)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         draw_color_swatch(ctx, cfg.colors.barlines, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Barlines", "barlines", cfg.colors.barlines, true) or settings_changed
@@ -1105,6 +2006,7 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.itemBoundaryThickness = edit_float(ctx, "Item boundary thickness", cfg.itemBoundaryThickness, 0.5, 6)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         draw_color_swatch(ctx, cfg.colors.itemBoundary, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Item boundaries", "itemBoundary", cfg.colors.itemBoundary, true) or settings_changed
@@ -1120,6 +2022,7 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fonts.fretScale = edit_float(ctx, "Fret scale", cfg.fonts.fretScale, 0.6, 2.5)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         draw_color_swatch(ctx, cfg.colors.text, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Text (frets + labels)", "text", cfg.colors.text, true) or settings_changed
@@ -1132,6 +2035,7 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fonts.droppedScale = edit_float(ctx, "Dropped scale", cfg.fonts.droppedScale, 0.5, 2.0)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         draw_color_swatch(ctx, cfg.colors.dropped, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Dropped notes", "dropped", cfg.colors.dropped, true) or settings_changed
@@ -1141,39 +2045,12 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fonts.timeSigScale = edit_float(ctx, "Time sig scale", cfg.fonts.timeSigScale, 0.6, 3.0)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
         rv, cfg.showFirstTimeSigInSystemGutter = reaper.ImGui_Checkbox(ctx, "Time signature in gutter", cfg.showFirstTimeSigInSystemGutter)
         settings_changed = settings_changed or rv
-      end
 
-      if reaper.ImGui_CollapsingHeader(ctx, "Fretboard", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        if cfg.fretboardMode == "next_notes" then
-          reaper.ImGui_SetNextItemWidth(ctx, 140)
-          rv, cfg.fretboardNextCount = edit_int(ctx, "Next notes", cfg.fretboardNextCount, 0, 128)
-          settings_changed = settings_changed or rv
-        elseif cfg.fretboardMode == "next_bars" then
-          reaper.ImGui_SetNextItemWidth(ctx, 140)
-          rv, cfg.fretboardNextBars = edit_int(ctx, "Next bars", cfg.fretboardNextBars, 0, 32)
-          settings_changed = settings_changed or rv
-        end
-
-        if cfg.fretboardMode == "next_notes" or cfg.fretboardMode == "next_bars" then
-          local style_labels = "Outline only\0Outline + shade\0Outline + ramp\0"
-          local style_values = { "outline", "outline_shade", "outline_ramp" }
-          local style_index = 0
-          for i, style in ipairs(style_values) do
-            if style == cfg.fretboardNextStyle then
-              style_index = i - 1
-              break
-            end
-          end
-          reaper.ImGui_SetNextItemWidth(ctx, 180)
-          rv, style_index = reaper.ImGui_Combo(ctx, "Next notes style", style_index, style_labels)
-          if rv then
-            cfg.fretboardNextStyle = style_values[style_index + 1] or "outline"
-            settings_changed = true
-          end
-        end
-
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Fretboard")
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardFrets = edit_int(ctx, "Fret count", cfg.fretboardFrets, 1, 36)
         settings_changed = settings_changed or rv
@@ -1181,22 +2058,27 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardNoteRoundness = edit_float(ctx, "Note roundness", cfg.fretboardNoteRoundness, 0, 1)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardNoteSize = edit_float(ctx, "Note size", cfg.fretboardNoteSize, 0.3, 2.5)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardDotSize = edit_float(ctx, "Dot size", cfg.fretboardDotSize, 0.2, 3.0)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardFretThickness = edit_float(ctx, "Fret thickness", cfg.fretboardFretThickness, 0.5, 6.0)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.fretboardStringThickness = edit_float(ctx, "String thickness", cfg.fretboardStringThickness, 0.5, 6.0)
         settings_changed = settings_changed or rv
+        scale_changed = scale_changed or rv
 
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Text(ctx, "Fretboard colors")
@@ -1219,82 +2101,18 @@ local function draw_ui()
         draw_color_swatch(ctx, cfg.colors.fretboardNext, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Fretboard next notes", "fretboardNext", cfg.colors.fretboardNext, true) or settings_changed
-      end
 
-      if reaper.ImGui_CollapsingHeader(ctx, "Playback", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        rv, cfg.followPlay = reaper.ImGui_Checkbox(ctx, "Follow play cursor", cfg.followPlay)
-        settings_changed = settings_changed or rv
-        rv, cfg.followEditWhenStopped = reaper.ImGui_Checkbox(ctx, "Follow edit cursor", cfg.followEditWhenStopped)
-        settings_changed = settings_changed or rv
-
-        if cfg.updateMode == "step" then
-          reaper.ImGui_SetNextItemWidth(ctx, 120)
-          rv, cfg.updateStep = edit_int(ctx, "Step", cfg.updateStep, 1, 64)
-          settings_changed = settings_changed or rv
-        end
-
-        reaper.ImGui_SetNextItemWidth(ctx, 120)
-        rv, cfg.antidelayBeats = edit_int(ctx, "Antidelay beats", cfg.antidelayBeats, 0, 64)
-        settings_changed = settings_changed or rv
-      end
-
-      if reaper.ImGui_CollapsingHeader(ctx, "General", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        reaper.ImGui_SetNextItemWidth(ctx, 160)
-        rv, cfg.groupEpsilonMs = edit_float(ctx, "Group epsilon (ms)", cfg.groupEpsilonMs, 0, 100)
-        settings_changed = settings_changed or rv
-
-        rv, cfg.logEnabled = reaper.ImGui_Checkbox(ctx, "Logging", cfg.logEnabled)
-        settings_changed = settings_changed or rv
-        rv, cfg.logVerbose = reaper.ImGui_Checkbox(ctx, "Verbose logging", cfg.logVerbose)
-        settings_changed = settings_changed or rv
-
-        if not state.logPathBuf then
-          state.logPathBuf = cfg.logPath
-        end
-        reaper.ImGui_SetNextItemWidth(ctx, 320)
-        rv, state.logPathBuf = reaper.ImGui_InputText(ctx, "Log file", state.logPathBuf)
-        if rv then
-          cfg.logPath = state.logPathBuf
+        if scale_changed then
+          cfg.stylePreset = "custom"
           settings_changed = true
-        end
-        reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, "Reset default") then
-          cfg.logPath = script_dir .. "/luaTab.log"
-          state.logPathBuf = cfg.logPath
-          settings_changed = true
-        end
-
-        if cfg.logEnabled then
-          reaper.ImGui_Text(ctx, string.format("Log: %s", util.log_path() or "(none)"))
-        end
-        if state.takeSource then
-          reaper.ImGui_Text(ctx, string.format("Source: %s", state.takeSource))
-        end
-
-        reaper.ImGui_Separator(ctx)
-        if reaper.ImGui_Button(ctx, "Reset all settings") then
-          reaper.ImGui_OpenPopup(ctx, "Reset settings")
-        end
-        if reaper.ImGui_BeginPopupModal(ctx, "Reset settings", true, 0) then
-          reaper.ImGui_Text(ctx, "Reset all settings to defaults?")
-          reaper.ImGui_Text(ctx, "This cannot be undone.")
-          if reaper.ImGui_Button(ctx, "Reset now") then
-            reset_config_to_defaults()
-            settings_changed = false
-            settings_reset = true
-            reaper.ImGui_CloseCurrentPopup(ctx)
-          end
-          reaper.ImGui_SameLine(ctx)
-          if reaper.ImGui_Button(ctx, "Cancel") then
-            reaper.ImGui_CloseCurrentPopup(ctx)
-          end
-          reaper.ImGui_EndPopup(ctx)
         end
       end
 
       if settings_changed and not settings_reset then
         apply_settings_change()
       end
+
+      draw_preset_save_modal(ctx)
 
       if reaper.ImGui_Button(ctx, "Close") then
         reaper.ImGui_CloseCurrentPopup(ctx)

@@ -39,6 +39,7 @@ config.defaults = {
   },
 
   colorPreset = "dark",
+  stylePreset = "default",
 
   tuning = {
     { name = "G", open = 55 },
@@ -213,6 +214,7 @@ function config.load(section)
   cfg.logPath = read_string(ns, "logPath", cfg.logPath)
 
   cfg.colorPreset = read_string(ns, "colorPreset", cfg.colorPreset)
+  cfg.stylePreset = read_string(ns, "stylePreset", cfg.stylePreset)
 
   cfg.updateMode = read_string(ns, "updateMode", cfg.updateMode)
   cfg.updateStep = read_number(ns, "updateStep", cfg.updateStep)
@@ -307,6 +309,7 @@ function config.save(cfg, section)
   write_value(ns, "logPath", cfg.logPath or "")
 
   write_value(ns, "colorPreset", cfg.colorPreset or "dark")
+  write_value(ns, "stylePreset", cfg.stylePreset or "default")
 
   write_value(ns, "updateMode", cfg.updateMode)
   write_value(ns, "updateStep", cfg.updateStep)
@@ -370,6 +373,7 @@ function config.reset(section)
     "logVerbose",
     "logPath",
     "colorPreset",
+    "stylePreset",
     "updateMode",
     "updateStep",
     "antidelayBeats",
@@ -445,6 +449,92 @@ function config.reset(section)
       end
     end
   end
+
+  local user_color_keys = {
+    "background",
+    "uiText",
+    "uiControlBg",
+    "strings",
+    "barlines",
+    "itemBoundary",
+    "text",
+    "dropped",
+    "marker",
+    "noteBg",
+    "fretboardBg",
+    "fretboardStrings",
+    "fretboardFrets",
+    "fretboardCurrent",
+    "fretboardNext",
+  }
+
+  local user_tuning_count = read_number(ns, "userPresets.tuning.count", 0)
+  local max_tuning = math.max(user_tuning_count, 64)
+  for i = 1, max_tuning do
+    local base = string.format("userPresets.tuning.%d", i)
+    local has_entry = reaper.HasExtState(ns, base .. ".name") or reaper.HasExtState(ns, base .. ".count")
+    if not has_entry and i > user_tuning_count then
+      break
+    end
+    local string_count = read_number(ns, base .. ".count", 0)
+    delete_value(ns, base .. ".name")
+    delete_value(ns, base .. ".count")
+    for j = 1, string_count do
+      delete_value(ns, string.format("%s.string.%d.name", base, j))
+      delete_value(ns, string.format("%s.string.%d.open", base, j))
+    end
+  end
+  delete_value(ns, "userPresets.tuning.count")
+
+  local user_color_count = read_number(ns, "userPresets.colors.count", 0)
+  local max_colors = math.max(user_color_count, 64)
+  for i = 1, max_colors do
+    local base = string.format("userPresets.colors.%d", i)
+    local has_entry = reaper.HasExtState(ns, base .. ".name")
+    if not has_entry and i > user_color_count then
+      break
+    end
+    delete_value(ns, base .. ".name")
+    for _, key in ipairs(user_color_keys) do
+      delete_color(ns, string.format("%s.colors.%s", base, key))
+    end
+  end
+  delete_value(ns, "userPresets.colors.count")
+
+  local user_scale_count = read_number(ns, "userPresets.style.count", 0)
+  local max_scales = math.max(user_scale_count, 64)
+  for i = 1, max_scales do
+    local base = string.format("userPresets.style.%d", i)
+    local has_entry = reaper.HasExtState(ns, base .. ".name")
+    if not has_entry and i > user_scale_count then
+      break
+    end
+    delete_value(ns, base .. ".name")
+    local scale_keys = {
+      "systemGutterPx",
+      "barPrefixPx",
+      "barContentPx",
+      "barGutterPx",
+      "systemRowGapPx",
+      "staffPaddingTopPx",
+      "staffPaddingBottomPx",
+      "stringSpacingPx",
+      "barLineThickness",
+      "itemBoundaryThickness",
+    }
+    for _, key in ipairs(scale_keys) do
+      delete_value(ns, string.format("%s.%s", base, key))
+    end
+    local font_keys = {
+      "fretScale",
+      "timeSigScale",
+      "droppedScale",
+    }
+    for _, key in ipairs(font_keys) do
+      delete_value(ns, string.format("%s.fonts.%s", base, key))
+    end
+  end
+  delete_value(ns, "userPresets.style.count")
 end
 
 return config

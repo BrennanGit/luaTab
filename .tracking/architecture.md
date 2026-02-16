@@ -9,7 +9,7 @@ This document is an advisory, project-agnostic place to capture:
 
 It is intentionally lightweight. Keep it accurate and useful; avoid over-documenting.
 
-Last updated: 2026-02-15
+Last updated: 2026-02-16
 
 ---
 
@@ -116,3 +116,5 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 ## 8) Change Log (Optional)
 
 - 2026-02-15 — Added optional fretboard popup rendering — #014
+- 2026-02-16 — Added user preset persistence and settings export flow — #027
+- 2026-02-16 — Status overlay rendered as a bottom bar — #024

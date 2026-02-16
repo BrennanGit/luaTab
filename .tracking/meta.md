@@ -1,14 +1,14 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
- - Last updated: 2026-02-15 15:55 UTC
+- Last updated: 2026-02-16 08:34 UTC
 
 ---
 
 ## Active Task Stack
 
 - Top (current):
-  - #024-status-bar — Status: in-progress — Owner: agent
+  - (none)
 - Stack:
   - (empty)
 
@@ -44,12 +44,19 @@ Format:
   Functions: draw_ui()
   Related: #022
 
-- [in-progress] 024-status-bar — Status bar overlay (2026-02-16) — Owner: agent
+- [done] 024-status-bar — Status bar overlay (2026-02-16) — Owner: agent
   Type: feature
   Stability: experimental
   Files: luaTab.lua, .tracking/024-status-bar.md
   Functions: draw_ui()
   Related: #023
+
+- [done] 027-presets-export — Preset save + export (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/027-presets-export.md
+  Functions: draw_ui(), config.reset()
+  Related: #024
 
 - [done] 025-reset-settings — Reset settings emergency fix (2026-02-16) — Owner: agent
   Type: bugfix
@@ -59,13 +66,6 @@ Format:
   Related: #024
 
 - [done] 026-fretboard-dock-flicker — Fretboard dock flicker fix (2026-02-16) — Owner: agent
-  Type: bugfix
-  Stability: experimental
-  Files: luaTab.lua, .tracking/026-fretboard-dock-flicker.md
-  Functions: draw_fretboard_popup()
-  Related: #025
-
-- [in-progress] 026-fretboard-dock-flicker — Fretboard dock flicker fix (2026-02-16) — Owner: agent
   Type: bugfix
   Stability: experimental
   Files: luaTab.lua, .tracking/026-fretboard-dock-flicker.md

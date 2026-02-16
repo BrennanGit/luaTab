@@ -21,13 +21,23 @@ Project philosophy:
 Recommended:
 - `reaper.SetExtState("luaTab", key, value, true)`
 
-### 1.2 Presets (optional)
-Later: allow export/import of presets (tuning + weights + layout).
-For offline simplicity, a simple key-value format or JSON can be used.
+### 1.2 Presets (default vs user)
+- Default presets ship with the script (tuning + color + style).
+- User presets are saved separately in ExtState and shown alongside defaults.
+- Resetting settings clears user presets and restores defaults only.
+
+Preset persistence keys:
+- `userPresets.tuning.*`
+- `userPresets.colors.*`
+- `userPresets.style.*`
 
 ### 1.3 Resetting to defaults
 - Settings popup includes a "Reset all settings" action.
 - Emergency reset: create a file named "luaTab.reset" in the script directory, then run the script once. The marker file is deleted after the reset and the ImGui layout ini is cleared for this script.
+
+### 1.4 Exporting settings
+- Settings popup includes an "Export settings" action.
+- The export prints a Lua table containing all current settings to the REAPER console.
 
 ---
 
@@ -148,6 +158,7 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 
 Runtime-configurable colors (via settings popup):
 - `colorPreset` (enum): dark, light
+- `stylePreset` (enum): default, custom, user presets
 - `colors.background`
 - `colors.uiText`
 - `colors.uiControlBg`
