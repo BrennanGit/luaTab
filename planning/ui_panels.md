@@ -25,6 +25,7 @@ state.panels = {
   main = { value = true },
   fretboard = { value = true },
   settings = { value = false },
+  userPresets = { value = false },
 }
 ```
 

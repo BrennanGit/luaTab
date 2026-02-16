@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-16 14:31 UTC
+- Last updated: 2026-02-16 15:41 UTC
 
 ---
 
@@ -36,6 +36,20 @@ Format:
 -->
 
 ---
+
+- [done] 037-user-presets-panel-fixes — User presets panel fixes (2026-02-16) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/037-user-presets-panel-fixes.md
+  Functions: draw_user_presets_panel(), draw_preset_delete_modal()
+  Related: #036
+
+- [done] 036-user-presets-panel — User presets panel (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, planning/ui_panels.md, .tracking/036-user-presets-panel.md
+  Functions: draw_ui(), draw_user_presets_panel(), draw_preset_delete_modal(), delete_user_preset(), open_preset_delete(), apply_layout_preset(), capture_layout_preset()
+  Related: #032, #033, #034, #035
 
 - [done] 030-gear-panels-menu — Gear panels menu (2026-02-16) — Owner: agent
   Type: feature

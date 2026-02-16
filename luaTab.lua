@@ -148,6 +148,7 @@ local state = {
     fretboard = { value = cfg.fretboardMode ~= "hidden" },
     settings = { value = false },
     colorPicker = { value = false },
+    userPresets = { value = false },
   },
   fretboardPanelOpen = cfg.fretboardMode ~= "hidden",
   lastHeartbeat = 0,
@@ -159,12 +160,14 @@ local state = {
   settingsWindowInitialized = false,
   fretboardWindowInitialized = false,
   colorPickerWindowInitialized = false,
+  userPresetsWindowInitialized = false,
   fretboardFocused = false,
   panelLayout = {
     main = {},
     settings = {},
     fretboard = {},
     colorPicker = {},
+    userPresets = {},
   },
   pendingLayout = nil,
   presetSave = {
@@ -176,6 +179,14 @@ local state = {
     confirmType = nil,
     error = nil,
     focusName = false,
+  },
+  presetDelete = {
+    open = false,
+    kind = nil,
+    index = nil,
+    name = nil,
+    focusConfirm = false,
+    returnFocus = false,
   },
   fretboardLastMode = "current",
 }
@@ -312,6 +323,7 @@ local layout_panel_keys = {
   "settings",
   "fretboard",
   "colorPicker",
+  "userPresets",
 }
 
 local function build_default_layout_preset()
@@ -326,6 +338,7 @@ local function build_default_layout_preset()
       settings = { open = false, pos = { 120, 120 }, size = { 560, 520 } },
       fretboard = { open = config_mod.defaults.fretboardMode ~= "hidden", pos = { 140, 180 }, size = { 520, 220 } },
       colorPicker = { open = false, pos = { 160, 200 }, size = { 520, 420 } },
+      userPresets = { open = false, pos = { 180, 220 }, size = { 520, 480 } },
     },
   }
 end
@@ -983,6 +996,7 @@ local function capture_style_preset(source)
 end
 
 local preset_index_for_id
+local apply_color_preset
 
 local apply_settings_change
 
@@ -1032,6 +1046,58 @@ local function open_preset_save(kind)
   state.presetSave.error = nil
   state.presetSave.focusName = true
   state.presetSave.open = true
+end
+
+local function delete_user_preset(kind, index)
+  local preset = nil
+  if kind == "tuning" then
+    preset = user_tuning_presets[index]
+    if preset then
+      table.remove(user_tuning_presets, index)
+      save_user_tuning_presets(SECTION, user_tuning_presets)
+      if cfg.tuningPreset == ("user:" .. preset.name) then
+        cfg.tuningPreset = "custom"
+      end
+    end
+  elseif kind == "color" then
+    preset = user_color_presets[index]
+    if preset then
+      table.remove(user_color_presets, index)
+      save_user_color_presets(SECTION, user_color_presets)
+      if cfg.colorPreset == ("user:" .. preset.name) then
+        local fallback = default_color_presets[1]
+        if fallback and apply_color_preset(cfg, fallback) then
+          cfg.colorPreset = fallback.id
+        else
+          cfg.colorPreset = "dark"
+        end
+      end
+    end
+  elseif kind == "style" then
+    preset = user_style_presets[index]
+    if preset then
+      table.remove(user_style_presets, index)
+      save_user_style_presets(SECTION, user_style_presets)
+      if cfg.stylePreset == ("user:" .. preset.name) then
+        cfg.stylePreset = "custom"
+      end
+    end
+  end
+
+  if preset then
+    apply_settings_change()
+    return true
+  end
+
+  return false
+end
+
+local function open_preset_delete(kind, index, name)
+  state.presetDelete.kind = kind
+  state.presetDelete.index = index
+  state.presetDelete.name = name or ""
+  state.presetDelete.focusConfirm = true
+  state.presetDelete.open = true
 end
 
 
@@ -1132,6 +1198,55 @@ local function draw_preset_save_modal(ctx)
   reaper.ImGui_EndPopup(ctx)
 end
 
+local function draw_preset_delete_modal(ctx)
+  if state.presetDelete.open then
+    reaper.ImGui_OpenPopup(ctx, "Delete preset")
+    state.presetDelete.open = false
+  end
+
+  if not reaper.ImGui_BeginPopupModal(ctx, "Delete preset", true, 0) then
+    return
+  end
+
+  local kind_label = state.presetDelete.kind or "preset"
+  local name_label = state.presetDelete.name or ""
+  reaper.ImGui_Text(ctx, string.format("Delete %s preset '%s'?", kind_label, name_label))
+  reaper.ImGui_Text(ctx, "This cannot be undone.")
+
+  local delete_requested = false
+  if reaper.ImGui_Button(ctx, "Delete") then
+    delete_requested = true
+  end
+  if state.presetDelete.focusConfirm and reaper.ImGui_SetItemDefaultFocus then
+    reaper.ImGui_SetItemDefaultFocus(ctx)
+    state.presetDelete.focusConfirm = false
+  end
+  if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_Enter then
+    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter(), false) then
+      delete_requested = true
+    end
+  end
+  if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_KeypadEnter then
+    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_KeypadEnter(), false) then
+      delete_requested = true
+    end
+  end
+
+  if delete_requested then
+    delete_user_preset(state.presetDelete.kind, state.presetDelete.index)
+    state.presetDelete.returnFocus = true
+    reaper.ImGui_CloseCurrentPopup(ctx)
+  end
+
+  reaper.ImGui_SameLine(ctx)
+  if reaper.ImGui_Button(ctx, "Cancel") then
+    state.presetDelete.returnFocus = true
+    reaper.ImGui_CloseCurrentPopup(ctx)
+  end
+
+  reaper.ImGui_EndPopup(ctx)
+end
+
 preset_index_for_id = function(presets, preset_id, fallback_id)
   for i, preset in ipairs(presets) do
     if preset.id == preset_id then
@@ -1162,7 +1277,7 @@ local function color_preset_index(preset_id)
   return preset_index_for_id(color_presets, preset_id, "dark")
 end
 
-local function apply_color_preset(cfg, preset)
+apply_color_preset = function(cfg, preset)
   if not preset or not preset.colors then
     return false
   end
@@ -1899,6 +2014,72 @@ local function draw_color_picker_panel()
   end)
 end
 
+local function draw_user_preset_list(ctx, kind, presets)
+  if not presets or #presets == 0 then
+    reaper.ImGui_Text(ctx, "No user presets saved.")
+    return
+  end
+  for i, preset in ipairs(presets) do
+    reaper.ImGui_PushID(ctx, kind .. ":" .. tostring(i))
+    reaper.ImGui_Text(ctx, preset.name or "(unnamed)")
+    reaper.ImGui_SameLine(ctx)
+    if reaper.ImGui_Button(ctx, "Delete") then
+      open_preset_delete(kind, i, preset.name)
+    end
+    reaper.ImGui_PopID(ctx)
+  end
+end
+
+local function draw_user_presets_panel()
+  if state.panels.userPresets.value then
+    apply_pending_layout("userPresets", "userPresetsWindowInitialized")
+    if not state.userPresetsWindowInitialized then
+      reaper.ImGui_SetNextWindowSize(ctx, 520, 480, reaper.ImGui_Cond_FirstUseEver())
+      if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
+      end
+      if reaper.ImGui_SetNextWindowPos and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowPos(ctx, 180, 220, reaper.ImGui_Cond_FirstUseEver())
+      end
+      state.userPresetsWindowInitialized = true
+    end
+    reaper.ImGui_SetNextWindowSizeConstraints(ctx, 360, 300, 1200, 1000)
+  end
+
+  if state.presetDelete.returnFocus then
+    if reaper.ImGui_SetNextWindowFocus then
+      reaper.ImGui_SetNextWindowFocus(ctx)
+    end
+    state.presetDelete.returnFocus = false
+  end
+
+  Panels.window(ctx, state.panels.userPresets, "User Presets", 0, function(ctx)
+    update_panel_layout("userPresets")
+    local header_flags = reaper.ImGui_TreeNodeFlags_DefaultOpen and reaper.ImGui_TreeNodeFlags_DefaultOpen() or 0
+
+    if reaper.ImGui_CollapsingHeader(ctx, "Tuning", header_flags) then
+      if reaper.ImGui_Button(ctx, "Save current as preset##tuning") then
+        open_preset_save("tuning")
+      end
+      draw_user_preset_list(ctx, "tuning", user_tuning_presets)
+    end
+
+    if reaper.ImGui_CollapsingHeader(ctx, "Colors", header_flags) then
+      if reaper.ImGui_Button(ctx, "Save current as preset##colors") then
+        open_preset_save("color")
+      end
+      draw_user_preset_list(ctx, "color", user_color_presets)
+    end
+
+    if reaper.ImGui_CollapsingHeader(ctx, "Style", header_flags) then
+      if reaper.ImGui_Button(ctx, "Save current as preset##style") then
+        open_preset_save("style")
+      end
+      draw_user_preset_list(ctx, "style", user_style_presets)
+    end
+  end)
+end
+
 local function format_settings_export(cfg)
   local function fmt(value)
     local t = type(value)
@@ -2021,11 +2202,13 @@ local function reset_config_to_defaults()
   state.settingsWindowInitialized = false
   state.fretboardWindowInitialized = false
   state.colorPickerWindowInitialized = false
+  state.userPresetsWindowInitialized = false
   state.fretboardFocused = false
   state.panels.fretboard.value = cfg.fretboardMode ~= "hidden"
   state.fretboardPanelOpen = state.panels.fretboard.value
   state.panels.settings.value = false
   state.panels.colorPicker.value = false
+  state.panels.userPresets.value = false
   state.colorPickerKey = "background"
   apply_settings_change()
 end
@@ -2554,6 +2737,11 @@ local function draw_ui()
           reaper.ImGui_PopID(ctx)
         end
       end
+      if reaper.ImGui_Selectable then
+        if reaper.ImGui_Selectable(ctx, "Manage user presets", false) then
+          state.panels.userPresets.value = true
+        end
+      end
       if reaper.ImGui_EndCombo then
         reaper.ImGui_EndCombo(ctx)
       end
@@ -2584,6 +2772,9 @@ local function draw_ui()
       if reaper.ImGui_Selectable then
         if reaper.ImGui_Selectable(ctx, "Save current as preset...", false) then
           open_preset_save("color")
+        end
+        if reaper.ImGui_Selectable(ctx, "Manage user presets", false) then
+          state.panels.userPresets.value = true
         end
       end
       if reaper.ImGui_EndCombo then
@@ -2616,6 +2807,9 @@ local function draw_ui()
       if reaper.ImGui_Selectable then
         if reaper.ImGui_Selectable(ctx, "Save current as preset...", false) then
           open_preset_save("style")
+        end
+        if reaper.ImGui_Selectable(ctx, "Manage user presets", false) then
+          state.panels.userPresets.value = true
         end
       end
       if reaper.ImGui_EndCombo then
@@ -2684,6 +2878,7 @@ local function draw_ui()
     end
 
     draw_preset_save_modal(ctx)
+    draw_preset_delete_modal(ctx)
 
     local avail_x, _ = reaper.ImGui_GetContentRegionAvail(ctx)
     local bars_per_system = layout.calc_bars_per_system(cfg, avail_x)
@@ -2816,6 +3011,11 @@ local function draw_ui()
               state.panels.colorPicker.value = v
             end
 
+            changed, v = reaper.ImGui_MenuItem(ctx, "User Presets", nil, state.panels.userPresets.value)
+            if changed then
+              state.panels.userPresets.value = v
+            end
+
             reaper.ImGui_EndPopup(ctx)
           end
         end
@@ -2879,6 +3079,7 @@ local function draw_ui()
 
   draw_settings_panel()
   draw_color_picker_panel()
+  draw_user_presets_panel()
 
   local fretboard_panel_changed = draw_fretboard_panel(t, current_bar)
   if fretboard_panel_changed then
