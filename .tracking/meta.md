@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-16 11:20 UTC
+- Last updated: 2026-02-16 12:02 UTC
 
 ---
 
@@ -42,6 +42,13 @@ Format:
   Stability: experimental
   Files: luaTab.lua, .tracking/030-gear-panels-menu.md
   Functions: draw_ui()
+  Related: #028
+
+- [done] 031-color-picker-panel — Color Picker panel (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/031-color-picker-panel.md
+  Functions: draw_ui(), draw_settings_panel(), draw_color_picker_panel()
   Related: #028
 
 - [done] 029-panels-debug-logging — Panel debug logging (2026-02-16) — Owner: agent

@@ -147,15 +147,18 @@ local state = {
     main = { value = true },
     fretboard = { value = cfg.fretboardMode ~= "hidden" },
     settings = { value = false },
+    colorPicker = { value = false },
   },
   fretboardPanelOpen = cfg.fretboardMode ~= "hidden",
   lastHeartbeat = 0,
   colorHex = {},
+  colorPickerKey = "background",
   logPathBuf = nil,
   prevBarsBuf = nil,
   nextBarsBuf = nil,
   settingsWindowInitialized = false,
   fretboardWindowInitialized = false,
+  colorPickerWindowInitialized = false,
   fretboardFocused = false,
   presetSave = {
     open = false,
@@ -312,23 +315,50 @@ local custom_style_preset = {
   name = "Current (custom)",
 }
 
-local user_color_keys = {
-  "background",
-  "uiText",
-  "uiControlBg",
-  "strings",
-  "barlines",
-  "itemBoundary",
-  "text",
-  "dropped",
-  "marker",
-  "noteBg",
-  "fretboardBg",
-  "fretboardStrings",
-  "fretboardFrets",
-  "fretboardCurrent",
-  "fretboardNext",
+local user_color_items = {
+  { key = "background", label = "Background" },
+  { key = "uiText", label = "UI text" },
+  { key = "uiControlBg", label = "UI controls" },
+  { key = "strings", label = "Strings (staff lines)" },
+  { key = "barlines", label = "Barlines" },
+  { key = "itemBoundary", label = "Item boundaries" },
+  { key = "marker", label = "Current bar highlight" },
+  { key = "text", label = "Text (frets + labels)" },
+  { key = "noteBg", label = "Fret background" },
+  { key = "dropped", label = "Dropped notes" },
+  { key = "fretboardBg", label = "Fretboard bg" },
+  { key = "fretboardStrings", label = "Fretboard strings" },
+  { key = "fretboardFrets", label = "Fretboard frets/dots" },
+  { key = "fretboardCurrent", label = "Fretboard current note" },
+  { key = "fretboardNext", label = "Fretboard next notes" },
 }
+
+local user_color_keys = {}
+for i, item in ipairs(user_color_items) do
+  user_color_keys[i] = item.key
+end
+
+local color_picker_labels = nil
+local function build_color_picker_labels()
+  if color_picker_labels then
+    return color_picker_labels
+  end
+  local labels = {}
+  for _, item in ipairs(user_color_items) do
+    labels[#labels + 1] = item.label
+  end
+  color_picker_labels = table.concat(labels, "\0") .. "\0"
+  return color_picker_labels
+end
+
+local function color_picker_index_for_key(key)
+  for i, item in ipairs(user_color_items) do
+    if item.key == key then
+      return i
+    end
+  end
+  return 1
+end
 
 local function read_number_ext(section, key, fallback)
   if reaper.HasExtState(section, key) then
@@ -1208,17 +1238,37 @@ local function edit_color_hex(ctx, label, key, color, include_alpha)
   return false
 end
 
-local function draw_color_swatch(ctx, color, size)
+local function draw_color_swatch(ctx, color, size, id)
   if not color or not reaper.ImGui_GetCursorScreenPos or not reaper.ImGui_GetWindowDrawList then
-    return
+    return false
   end
   local x, y = reaper.ImGui_GetCursorScreenPos(ctx)
+  local clicked = false
+  if reaper.ImGui_InvisibleButton then
+    local label = "##ColorSwatch"
+    if id then
+      label = label .. tostring(id)
+    end
+    clicked = reaper.ImGui_InvisibleButton(ctx, label, size, size)
+  else
+    reaper.ImGui_Dummy(ctx, size, size)
+  end
   local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
   local col = util.color_u32(color[1], color[2], color[3], color[4])
   local border = util.color_u32(0, 0, 0, 0.6)
   reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + size, y + size, col)
   reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + size, y + size, border)
-  reaper.ImGui_Dummy(ctx, size, size)
+  if not reaper.ImGui_InvisibleButton then
+    reaper.ImGui_Dummy(ctx, size, size)
+  end
+  return clicked
+end
+
+local function open_color_picker(key)
+  if key then
+    state.colorPickerKey = key
+  end
+  state.panels.colorPicker.value = true
 end
 
 local function edit_int(ctx, label, value, min_value, max_value)
@@ -1451,6 +1501,72 @@ local function draw_fretboard_panel(t, current_bar)
   return sync_fretboard_panel_state()
 end
 
+local function draw_color_picker_panel()
+  if state.panels.colorPicker.value then
+    if not state.colorPickerWindowInitialized then
+      reaper.ImGui_SetNextWindowSize(ctx, 520, 420, reaper.ImGui_Cond_FirstUseEver())
+      if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
+      end
+      if reaper.ImGui_SetNextWindowPos and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowPos(ctx, 160, 200, reaper.ImGui_Cond_FirstUseEver())
+      end
+      state.colorPickerWindowInitialized = true
+    end
+    reaper.ImGui_SetNextWindowSizeConstraints(ctx, 360, 360, 1000, 1000)
+  end
+
+  Panels.window(ctx, state.panels.colorPicker, "Color Picker", 0, function(ctx)
+    local settings_changed = false
+    local rv
+    local key = state.colorPickerKey or "background"
+    local picker_labels = build_color_picker_labels()
+    local index = color_picker_index_for_key(key) - 1
+
+    reaper.ImGui_Text(ctx, "Target")
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_SetNextItemWidth(ctx, 240)
+    rv, index = reaper.ImGui_Combo(ctx, "##ColorPickerTarget", index, picker_labels)
+    if rv then
+      local item = user_color_items[index + 1]
+      if item then
+        state.colorPickerKey = item.key
+        key = item.key
+      end
+    end
+
+    reaper.ImGui_SameLine(ctx)
+    if reaper.ImGui_Button(ctx, "Save colors as preset") then
+      open_preset_save("color")
+    end
+
+    local color = cfg.colors and key and cfg.colors[key]
+    if color then
+      reaper.ImGui_Separator(ctx)
+      local col_u32 = util.color_u32(color[1], color[2], color[3], color[4])
+      local flags = 0
+      if reaper.ImGui_ColorEditFlags_AlphaBar then
+        flags = flags + reaper.ImGui_ColorEditFlags_AlphaBar()
+      end
+      local changed, new_u32 = reaper.ImGui_ColorPicker4(ctx, "##ColorPicker", col_u32, flags)
+      if changed then
+        local r, g, b, a = reaper.ImGui_ColorConvertU32ToDouble4(new_u32)
+        color[1], color[2], color[3], color[4] = r, g, b, a
+        state.colorHex[key] = color_to_hex(color, true)
+        settings_changed = true
+      end
+    else
+      reaper.ImGui_Text(ctx, "No color selected.")
+    end
+
+    if settings_changed then
+      apply_settings_change()
+    end
+
+    draw_preset_save_modal(ctx)
+  end)
+end
+
 local function format_settings_export(cfg)
   local function fmt(value)
     local t = type(value)
@@ -1572,10 +1688,13 @@ local function reset_config_to_defaults()
   state.windowInitialized = false
   state.settingsWindowInitialized = false
   state.fretboardWindowInitialized = false
+  state.colorPickerWindowInitialized = false
   state.fretboardFocused = false
   state.panels.fretboard.value = cfg.fretboardMode ~= "hidden"
   state.fretboardPanelOpen = state.panels.fretboard.value
   state.panels.settings.value = false
+  state.panels.colorPicker.value = false
+  state.colorPickerKey = "background"
   apply_settings_change()
 end
 
@@ -1794,15 +1913,21 @@ local function draw_settings_panel()
 
       reaper.ImGui_Separator(ctx)
       reaper.ImGui_Text(ctx, "Background")
-      draw_color_swatch(ctx, cfg.colors.background, 14)
+      if draw_color_swatch(ctx, cfg.colors.background, 14, "background") then
+        open_color_picker("background")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Background", "background", cfg.colors.background, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.uiText, 14)
+      if draw_color_swatch(ctx, cfg.colors.uiText, 14, "uiText") then
+        open_color_picker("uiText")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "UI text", "uiText", cfg.colors.uiText, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.uiControlBg, 14)
+      if draw_color_swatch(ctx, cfg.colors.uiControlBg, 14, "uiControlBg") then
+        open_color_picker("uiControlBg")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "UI controls", "uiControlBg", cfg.colors.uiControlBg, true) or settings_changed
 
@@ -1812,7 +1937,9 @@ local function draw_settings_panel()
       rv, cfg.stringSpacingPx = edit_int(ctx, "String spacing", cfg.stringSpacingPx, 6, 40)
       settings_changed = settings_changed or rv
       scale_changed = scale_changed or rv
-      draw_color_swatch(ctx, cfg.colors.strings, 14)
+      if draw_color_swatch(ctx, cfg.colors.strings, 14, "strings") then
+        open_color_picker("strings")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Strings (staff lines)", "strings", cfg.colors.strings, true) or settings_changed
 
@@ -1822,7 +1949,9 @@ local function draw_settings_panel()
       rv, cfg.barLineThickness = edit_float(ctx, "Barline thickness", cfg.barLineThickness, 0.5, 6)
       settings_changed = settings_changed or rv
       scale_changed = scale_changed or rv
-      draw_color_swatch(ctx, cfg.colors.barlines, 14)
+      if draw_color_swatch(ctx, cfg.colors.barlines, 14, "barlines") then
+        open_color_picker("barlines")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Barlines", "barlines", cfg.colors.barlines, true) or settings_changed
 
@@ -1832,13 +1961,17 @@ local function draw_settings_panel()
       rv, cfg.itemBoundaryThickness = edit_float(ctx, "Item boundary thickness", cfg.itemBoundaryThickness, 0.5, 6)
       settings_changed = settings_changed or rv
       scale_changed = scale_changed or rv
-      draw_color_swatch(ctx, cfg.colors.itemBoundary, 14)
+      if draw_color_swatch(ctx, cfg.colors.itemBoundary, 14, "itemBoundary") then
+        open_color_picker("itemBoundary")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Item boundaries", "itemBoundary", cfg.colors.itemBoundary, true) or settings_changed
 
       reaper.ImGui_Separator(ctx)
       reaper.ImGui_Text(ctx, "Current bar highlight")
-      draw_color_swatch(ctx, cfg.colors.marker, 14)
+      if draw_color_swatch(ctx, cfg.colors.marker, 14, "marker") then
+        open_color_picker("marker")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Current bar highlight", "marker", cfg.colors.marker, true) or settings_changed
 
@@ -1848,10 +1981,14 @@ local function draw_settings_panel()
       rv, cfg.fonts.fretScale = edit_float(ctx, "Fret scale", cfg.fonts.fretScale, 0.6, 2.5)
       settings_changed = settings_changed or rv
       scale_changed = scale_changed or rv
-      draw_color_swatch(ctx, cfg.colors.text, 14)
+      if draw_color_swatch(ctx, cfg.colors.text, 14, "text") then
+        open_color_picker("text")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Text (frets + labels)", "text", cfg.colors.text, true) or settings_changed
-      draw_color_swatch(ctx, cfg.colors.noteBg, 14)
+      if draw_color_swatch(ctx, cfg.colors.noteBg, 14, "noteBg") then
+        open_color_picker("noteBg")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fret background", "noteBg", cfg.colors.noteBg, true) or settings_changed
 
@@ -1861,7 +1998,9 @@ local function draw_settings_panel()
       rv, cfg.fonts.droppedScale = edit_float(ctx, "Dropped scale", cfg.fonts.droppedScale, 0.5, 2.0)
       settings_changed = settings_changed or rv
       scale_changed = scale_changed or rv
-      draw_color_swatch(ctx, cfg.colors.dropped, 14)
+      if draw_color_swatch(ctx, cfg.colors.dropped, 14, "dropped") then
+        open_color_picker("dropped")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Dropped notes", "dropped", cfg.colors.dropped, true) or settings_changed
 
@@ -1907,23 +2046,33 @@ local function draw_settings_panel()
 
       reaper.ImGui_Separator(ctx)
       reaper.ImGui_Text(ctx, "Fretboard colors")
-      draw_color_swatch(ctx, cfg.colors.fretboardBg, 14)
+      if draw_color_swatch(ctx, cfg.colors.fretboardBg, 14, "fretboardBg") then
+        open_color_picker("fretboardBg")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fretboard bg", "fretboardBg", cfg.colors.fretboardBg, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.fretboardStrings, 14)
+      if draw_color_swatch(ctx, cfg.colors.fretboardStrings, 14, "fretboardStrings") then
+        open_color_picker("fretboardStrings")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fretboard strings", "fretboardStrings", cfg.colors.fretboardStrings, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.fretboardFrets, 14)
+      if draw_color_swatch(ctx, cfg.colors.fretboardFrets, 14, "fretboardFrets") then
+        open_color_picker("fretboardFrets")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fretboard frets/dots", "fretboardFrets", cfg.colors.fretboardFrets, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.fretboardCurrent, 14)
+      if draw_color_swatch(ctx, cfg.colors.fretboardCurrent, 14, "fretboardCurrent") then
+        open_color_picker("fretboardCurrent")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fretboard current note", "fretboardCurrent", cfg.colors.fretboardCurrent, true) or settings_changed
 
-      draw_color_swatch(ctx, cfg.colors.fretboardNext, 14)
+      if draw_color_swatch(ctx, cfg.colors.fretboardNext, 14, "fretboardNext") then
+        open_color_picker("fretboardNext")
+      end
       reaper.ImGui_SameLine(ctx)
       settings_changed = edit_color_hex(ctx, "Fretboard next notes", "fretboardNext", cfg.colors.fretboardNext, true) or settings_changed
 
@@ -2260,6 +2409,11 @@ local function draw_ui()
               state.panels.settings.value = v
             end
 
+            changed, v = reaper.ImGui_MenuItem(ctx, "Color Picker", nil, state.panels.colorPicker.value)
+            if changed then
+              state.panels.colorPicker.value = v
+            end
+
             reaper.ImGui_EndPopup(ctx)
           end
         end
@@ -2322,6 +2476,7 @@ local function draw_ui()
   end)
 
   draw_settings_panel()
+  draw_color_picker_panel()
 
   local fretboard_panel_changed = draw_fretboard_panel(t, current_bar)
   if fretboard_panel_changed then
