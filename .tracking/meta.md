@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-16 08:34 UTC
+- Last updated: 2026-02-16 11:20 UTC
 
 ---
 
@@ -36,6 +36,27 @@ Format:
 -->
 
 ---
+
+- [done] 030-gear-panels-menu — Gear panels menu (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/030-gear-panels-menu.md
+  Functions: draw_ui()
+  Related: #028
+
+- [done] 029-panels-debug-logging — Panel debug logging (2026-02-16) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, lib/ui_panels.lua, lib/util.lua, .tracking/029-panels-debug-logging.md
+  Functions: draw_ui(), Panels.window(), log_init()
+  Related: #028
+
+- [done] 028-panels-framework — Panel framework refactor (2026-02-16) — Owner: agent
+  Type: refactor
+  Stability: experimental
+  Files: luaTab.lua, lib/ui_panels.lua, planning/ui_panels.md, .tracking/architecture.md, .tracking/028-panels-framework.md
+  Functions: draw_ui(), draw_fretboard_panel(), draw_settings_panel()
+  Related: #026
 
 - [done] 023-gear-overlay — Gear overlay button (2026-02-15) — Owner: agent
   Type: bugfix

@@ -41,6 +41,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - **lib/frets.lua** — candidate generation, solver, reduction
 - **lib/render.lua** — draw strings, barlines, notes, time signatures, and fretboard popup
 - **lib/util.lua** — helpers
+- **lib/ui_panels.lua** — dockable panel helpers with safe Begin/End pairing
 
 ### Data Flow (Narrative)
 - Get cursor time (play or edit)
@@ -79,6 +80,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - Open strings do not contribute to fretted span
 - One note per string in an assignment
 - Rebuild MIDI/event cache only on bar/take change
+- Top-level ImGui windows must be created via lib/ui_panels.lua helpers
 
 ---
 
