@@ -287,7 +287,7 @@ function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next
           alpha = 0.75
         else
           local t = (count_next - i) / (count_next - 1)
-          alpha = 0.2 + t * 0.55
+          alpha = 0 + t * 0.75
         end
         fill = color_with_alpha(col_next, alpha)
       end

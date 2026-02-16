@@ -25,11 +25,14 @@ Recommended:
 - Default presets ship with the script (tuning + color + style).
 - User presets are saved separately in ExtState and shown alongside defaults.
 - Resetting settings clears user presets and restores defaults only.
+- Style presets now include layout state (panel visibility/size/position) and playback window/update settings.
 
 Preset persistence keys:
 - `userPresets.tuning.*`
 - `userPresets.colors.*`
 - `userPresets.style.*`
+- `userPresets.style.*.layout.*`
+- `userPresets.style.*.layout.panels.*`
 
 ### 1.3 Resetting to defaults
 - Settings popup includes a "Reset all settings" action.

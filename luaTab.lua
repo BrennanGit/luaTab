@@ -160,6 +160,13 @@ local state = {
   fretboardWindowInitialized = false,
   colorPickerWindowInitialized = false,
   fretboardFocused = false,
+  panelLayout = {
+    main = {},
+    settings = {},
+    fretboard = {},
+    colorPicker = {},
+  },
+  pendingLayout = nil,
   presetSave = {
     open = false,
     kind = nil,
@@ -168,6 +175,7 @@ local state = {
     confirmName = nil,
     confirmType = nil,
     error = nil,
+    focusName = false,
   },
   fretboardLastMode = "current",
 }
@@ -288,6 +296,40 @@ local scale_font_keys = {
   "droppedScale",
 }
 
+local layout_value_keys = {
+  "prevBars",
+  "nextBars",
+  "updateStep",
+  "antidelayBeats",
+}
+
+local layout_string_keys = {
+  "updateMode",
+}
+
+local layout_panel_keys = {
+  "main",
+  "settings",
+  "fretboard",
+  "colorPicker",
+}
+
+local function build_default_layout_preset()
+  return {
+    prevBars = config_mod.defaults.prevBars,
+    nextBars = config_mod.defaults.nextBars,
+    updateMode = config_mod.defaults.updateMode,
+    updateStep = config_mod.defaults.updateStep,
+    antidelayBeats = config_mod.defaults.antidelayBeats,
+    panels = {
+      main = { open = true, pos = { 100, 100 }, size = { 900, 360 } },
+      settings = { open = false, pos = { 120, 120 }, size = { 560, 520 } },
+      fretboard = { open = config_mod.defaults.fretboardMode ~= "hidden", pos = { 140, 180 }, size = { 520, 220 } },
+      colorPicker = { open = false, pos = { 160, 200 }, size = { 520, 420 } },
+    },
+  }
+end
+
 local function capture_scale_values(source)
   local scale = {}
   for _, key in ipairs(scale_value_keys) do
@@ -306,6 +348,7 @@ local default_style_presets = {
     label = "Default",
     name = "Default",
     scale = capture_scale_values(config_mod.defaults),
+    layout = build_default_layout_preset(),
   },
 }
 
@@ -365,6 +408,19 @@ local function read_number_ext(section, key, fallback)
     local value = tonumber(reaper.GetExtState(section, key))
     if value ~= nil then
       return value
+    end
+  end
+  return fallback
+end
+
+local function read_bool_ext(section, key, fallback)
+  if reaper.HasExtState(section, key) then
+    local value = reaper.GetExtState(section, key)
+    if value == "true" then
+      return true
+    end
+    if value == "false" then
+      return false
     end
   end
   return fallback
@@ -496,8 +552,54 @@ local function load_user_style_presets(section)
           has_values = true
         end
       end
-      if has_values then
-        presets[#presets + 1] = { name = name, scale = scale }
+      local layout = {}
+      local has_layout = false
+      for _, key in ipairs(layout_value_keys) do
+        local value = read_number_ext(section, string.format("userPresets.style.%d.layout.%s", i, key), nil)
+        if value ~= nil then
+          layout[key] = value
+          has_layout = true
+        end
+      end
+      for _, key in ipairs(layout_string_keys) do
+        local value = read_string_ext(section, string.format("userPresets.style.%d.layout.%s", i, key), "")
+        if value ~= "" then
+          layout[key] = value
+          has_layout = true
+        end
+      end
+      local panels = {}
+      for _, panel_key in ipairs(layout_panel_keys) do
+        local panel_base = string.format("userPresets.style.%d.layout.panels.%s", i, panel_key)
+        local open = read_bool_ext(section, panel_base .. ".open", nil)
+        local pos_x = read_number_ext(section, panel_base .. ".pos.x", nil)
+        local pos_y = read_number_ext(section, panel_base .. ".pos.y", nil)
+        local size_w = read_number_ext(section, panel_base .. ".size.w", nil)
+        local size_h = read_number_ext(section, panel_base .. ".size.h", nil)
+        if open ~= nil or pos_x ~= nil or pos_y ~= nil or size_w ~= nil or size_h ~= nil then
+          local panel = {}
+          if open ~= nil then
+            panel.open = open
+          end
+          if pos_x ~= nil and pos_y ~= nil then
+            panel.pos = { pos_x, pos_y }
+          end
+          if size_w ~= nil and size_h ~= nil then
+            panel.size = { size_w, size_h }
+          end
+          panels[panel_key] = panel
+          has_layout = true
+        end
+      end
+      if next(panels) then
+        layout.panels = panels
+      end
+      if has_values or has_layout then
+        local preset = { name = name, scale = scale }
+        if has_layout then
+          preset.layout = layout
+        end
+        presets[#presets + 1] = preset
       end
     end
   end
@@ -557,6 +659,20 @@ local function clear_user_style_presets(section)
     for _, key in ipairs(scale_font_keys) do
       delete_value_ext(section, string.format("%s.fonts.%s", base, key))
     end
+    for _, key in ipairs(layout_value_keys) do
+      delete_value_ext(section, string.format("%s.layout.%s", base, key))
+    end
+    for _, key in ipairs(layout_string_keys) do
+      delete_value_ext(section, string.format("%s.layout.%s", base, key))
+    end
+    for _, panel_key in ipairs(layout_panel_keys) do
+      local panel_base = string.format("%s.layout.panels.%s", base, panel_key)
+      delete_value_ext(section, panel_base .. ".open")
+      delete_value_ext(section, panel_base .. ".pos.x")
+      delete_value_ext(section, panel_base .. ".pos.y")
+      delete_value_ext(section, panel_base .. ".size.w")
+      delete_value_ext(section, panel_base .. ".size.h")
+    end
   end
   delete_value_ext(section, "userPresets.style.count")
 end
@@ -605,6 +721,37 @@ local function save_user_style_presets(section, presets)
       local value = fonts[key]
       if value ~= nil then
         write_value_ext(section, string.format("userPresets.style.%d.fonts.%s", i, key), value)
+      end
+    end
+    local layout = preset.layout or {}
+    for _, key in ipairs(layout_value_keys) do
+      local value = layout[key]
+      if value ~= nil then
+        write_value_ext(section, string.format("userPresets.style.%d.layout.%s", i, key), value)
+      end
+    end
+    for _, key in ipairs(layout_string_keys) do
+      local value = layout[key]
+      if value ~= nil then
+        write_value_ext(section, string.format("userPresets.style.%d.layout.%s", i, key), value)
+      end
+    end
+    local panels = layout.panels or {}
+    for _, panel_key in ipairs(layout_panel_keys) do
+      local panel = panels[panel_key]
+      if panel then
+        local panel_base = string.format("userPresets.style.%d.layout.panels.%s", i, panel_key)
+        if panel.open ~= nil then
+          write_value_ext(section, panel_base .. ".open", panel.open)
+        end
+        if panel.pos and panel.pos[1] and panel.pos[2] then
+          write_value_ext(section, panel_base .. ".pos.x", panel.pos[1])
+          write_value_ext(section, panel_base .. ".pos.y", panel.pos[2])
+        end
+        if panel.size and panel.size[1] and panel.size[2] then
+          write_value_ext(section, panel_base .. ".size.w", panel.size[1])
+          write_value_ext(section, panel_base .. ".size.h", panel.size[2])
+        end
       end
     end
   end
@@ -670,6 +817,7 @@ local function rebuild_preset_lists()
       label = "User: " .. preset.name,
       name = preset.name,
       scale = util.copy_table(preset.scale),
+      layout = preset.layout and util.copy_table(preset.layout) or nil,
     }
   end
   if cfg.stylePreset == "custom" then
@@ -735,6 +883,7 @@ local function preset_name_conflict(kind, name)
   return nil
 end
 
+
 local function capture_color_preset(colors)
   local snapshot = {}
   for _, key in ipairs(user_color_keys) do
@@ -745,9 +894,95 @@ local function capture_color_preset(colors)
   return snapshot
 end
 
-local function capture_style_preset(source)
-  return capture_scale_values(source)
+local function update_panel_layout(name)
+  if not (reaper.ImGui_GetWindowPos and reaper.ImGui_GetWindowSize) then
+    return
+  end
+  local x, y = reaper.ImGui_GetWindowPos(ctx)
+  local w, h = reaper.ImGui_GetWindowSize(ctx)
+  if not state.panelLayout then
+    state.panelLayout = {}
+  end
+  state.panelLayout[name] = {
+    pos = { x, y },
+    size = { w, h },
+  }
 end
+
+local function capture_layout_preset()
+  local layout = {
+    prevBars = cfg.prevBars,
+    nextBars = cfg.nextBars,
+    updateMode = cfg.updateMode,
+    updateStep = cfg.updateStep,
+    antidelayBeats = cfg.antidelayBeats,
+    panels = {},
+  }
+  for _, panel_key in ipairs(layout_panel_keys) do
+    local panel = {}
+    local open_ref = state.panels[panel_key]
+    if open_ref ~= nil then
+      panel.open = open_ref.value
+    end
+    local rect = state.panelLayout and state.panelLayout[panel_key] or nil
+    if rect then
+      if rect.pos then
+        panel.pos = { rect.pos[1], rect.pos[2] }
+      end
+      if rect.size then
+        panel.size = { rect.size[1], rect.size[2] }
+      end
+    end
+    layout.panels[panel_key] = panel
+  end
+  return layout
+end
+
+local sync_fretboard_panel_state
+
+local function apply_layout_preset(layout)
+  if not layout then
+    return
+  end
+  for _, key in ipairs(layout_value_keys) do
+    local value = layout[key]
+    if value ~= nil then
+      cfg[key] = value
+    end
+  end
+  for _, key in ipairs(layout_string_keys) do
+    local value = layout[key]
+    if value ~= nil and value ~= "" then
+      cfg[key] = value
+    end
+  end
+  local panels = layout.panels
+  if panels then
+    for _, panel_key in ipairs(layout_panel_keys) do
+      local panel = panels[panel_key]
+      if panel and state.panels[panel_key] then
+        if panel.open ~= nil then
+          state.panels[panel_key].value = panel.open
+        end
+      end
+    end
+    if next(panels) then
+      state.pendingLayout = util.copy_table(panels)
+    end
+    if panels.fretboard and panels.fretboard.open ~= nil then
+      sync_fretboard_panel_state()
+    end
+  end
+end
+
+local function capture_style_preset(source)
+  return {
+    scale = capture_scale_values(source),
+    layout = capture_layout_preset(),
+  }
+end
+
+local preset_index_for_id
 
 local apply_settings_change
 
@@ -773,7 +1008,8 @@ local function save_current_preset(kind, name)
     save_user_color_presets(SECTION, user_color_presets)
     cfg.colorPreset = "user:" .. name
   elseif kind == "style" then
-    local preset = { name = name, scale = capture_style_preset(cfg) }
+    local preset = capture_style_preset(cfg)
+    preset.name = name
     local index = find_user_preset_index(user_style_presets, name)
     if index then
       user_style_presets[index] = preset
@@ -794,8 +1030,10 @@ local function open_preset_save(kind)
   state.presetSave.confirmName = nil
   state.presetSave.confirmType = nil
   state.presetSave.error = nil
+  state.presetSave.focusName = true
   state.presetSave.open = true
 end
+
 
 local function draw_preset_save_modal(ctx)
   if state.presetSave.open then
@@ -819,6 +1057,10 @@ local function draw_preset_save_modal(ctx)
   reaper.ImGui_Text(ctx, string.format("Save current %s as a preset.", kind_label))
 
   local rv
+  if state.presetSave.focusName and reaper.ImGui_SetKeyboardFocusHere then
+    reaper.ImGui_SetKeyboardFocusHere(ctx)
+    state.presetSave.focusName = false
+  end
   rv, state.presetSave.name = reaper.ImGui_InputText(ctx, "Name", state.presetSave.name or "")
   if rv then
     state.presetSave.confirmOverwrite = false
@@ -849,7 +1091,22 @@ local function draw_preset_save_modal(ctx)
     reaper.ImGui_Text(ctx, state.presetSave.error)
   end
 
+  local save_requested = false
   if reaper.ImGui_Button(ctx, "Save") then
+    save_requested = true
+  end
+  if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_Enter then
+    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter(), false) then
+      save_requested = true
+    end
+  end
+  if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_KeypadEnter then
+    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_KeypadEnter(), false) then
+      save_requested = true
+    end
+  end
+
+  if save_requested then
     if trimmed == "" then
       state.presetSave.error = "Enter a preset name."
     else
@@ -875,7 +1132,7 @@ local function draw_preset_save_modal(ctx)
   reaper.ImGui_EndPopup(ctx)
 end
 
-local function preset_index_for_id(presets, preset_id, fallback_id)
+preset_index_for_id = function(presets, preset_id, fallback_id)
   for i, preset in ipairs(presets) do
     if preset.id == preset_id then
       return i
@@ -922,27 +1179,98 @@ local function style_preset_index(preset_id)
 end
 
 local function apply_style_preset(cfg, preset)
-  if not preset or not preset.scale then
+  if not preset or (not preset.scale and not preset.layout) then
     return false
   end
-  for _, key in ipairs(scale_value_keys) do
-    local value = preset.scale[key]
-    if value ~= nil then
-      cfg[key] = value
+  if preset.scale then
+    for _, key in ipairs(scale_value_keys) do
+      local value = preset.scale[key]
+      if value ~= nil then
+        cfg[key] = value
+      end
+    end
+    if not cfg.fonts then
+      cfg.fonts = {}
+    end
+    local fonts = preset.scale.fonts or {}
+    for _, key in ipairs(scale_font_keys) do
+      local value = fonts[key]
+      if value ~= nil then
+        cfg.fonts[key] = value
+      end
     end
   end
-  if not cfg.fonts then
-    cfg.fonts = {}
-  end
-  local fonts = preset.scale.fonts or {}
-  for _, key in ipairs(scale_font_keys) do
-    local value = fonts[key]
-    if value ~= nil then
-      cfg.fonts[key] = value
-    end
+  if preset.layout then
+    apply_layout_preset(preset.layout)
   end
   cfg.stylePreset = preset.id
   return true
+end
+
+local function cond_always()
+  if reaper.ImGui_Cond_Always then
+    return reaper.ImGui_Cond_Always()
+  end
+  return 0
+end
+
+local function normalize_pending_layout(name, pending)
+  if name ~= "main" then
+    return pending
+  end
+  if not (pending and (pending.size or pending.pos)) then
+    return pending
+  end
+  if not (reaper.ImGui_GetMainViewport and reaper.ImGui_Viewport_GetWorkPos and reaper.ImGui_Viewport_GetWorkSize) then
+    return pending
+  end
+  local viewport = reaper.ImGui_GetMainViewport(ctx)
+  if not viewport then
+    return pending
+  end
+  local work_x, work_y = reaper.ImGui_Viewport_GetWorkPos(viewport)
+  local work_w, work_h = reaper.ImGui_Viewport_GetWorkSize(viewport)
+  local size_w = pending.size and pending.size[1] or 900
+  local size_h = pending.size and pending.size[2] or 360
+  if pending.size then
+    local min_w = 320
+    local min_h = 200
+    pending.size[1] = util.clamp(pending.size[1], min_w, work_w)
+    pending.size[2] = util.clamp(pending.size[2], min_h, work_h)
+    size_w = pending.size[1]
+    size_h = pending.size[2]
+  end
+  pending.pos = {
+    work_x + (work_w - size_w) * 0.5,
+    work_y + (work_h - size_h) * 0.5,
+  }
+  return pending
+end
+
+local function apply_pending_layout(name, init_flag)
+  if not state.pendingLayout then
+    return false
+  end
+  local pending = state.pendingLayout[name]
+  if not pending then
+    return false
+  end
+  pending = normalize_pending_layout(name, pending)
+  local cond = cond_always()
+  local applied = false
+  if pending.size and reaper.ImGui_SetNextWindowSize then
+    reaper.ImGui_SetNextWindowSize(ctx, pending.size[1], pending.size[2], cond)
+    applied = true
+  end
+  if pending.pos and reaper.ImGui_SetNextWindowPos then
+    reaper.ImGui_SetNextWindowPos(ctx, pending.pos[1], pending.pos[2], cond)
+    applied = true
+  end
+  state.pendingLayout[name] = nil
+  if applied and init_flag then
+    state[init_flag] = true
+  end
+  return applied
 end
 
 local function clamp_config(cfg)
@@ -1389,7 +1717,7 @@ local function collect_fretboard_next_notes(t, current_bar, current_map)
   return next_notes
 end
 
-local function sync_fretboard_panel_state()
+sync_fretboard_panel_state = function()
   local open = state.panels.fretboard.value
   if open ~= state.fretboardPanelOpen then
     state.fretboardPanelOpen = open
@@ -1407,19 +1735,23 @@ end
 local function draw_fretboard_panel(t, current_bar)
   state.fretboardFocused = false
 
-  if state.panels.fretboard.value and not state.fretboardWindowInitialized then
-    reaper.ImGui_SetNextWindowSize(ctx, 520, 220, reaper.ImGui_Cond_FirstUseEver())
-    if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
-      reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
+  if state.panels.fretboard.value then
+    apply_pending_layout("fretboard", "fretboardWindowInitialized")
+    if not state.fretboardWindowInitialized then
+      reaper.ImGui_SetNextWindowSize(ctx, 520, 220, reaper.ImGui_Cond_FirstUseEver())
+      if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
+      end
+      if reaper.ImGui_SetNextWindowPos and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowPos(ctx, 140, 180, reaper.ImGui_Cond_FirstUseEver())
+      end
+      state.fretboardWindowInitialized = true
     end
-    if reaper.ImGui_SetNextWindowPos and reaper.ImGui_Cond_FirstUseEver then
-      reaper.ImGui_SetNextWindowPos(ctx, 140, 180, reaper.ImGui_Cond_FirstUseEver())
-    end
-    state.fretboardWindowInitialized = true
   end
 
   local flags = reaper.ImGui_WindowFlags_NoCollapse and reaper.ImGui_WindowFlags_NoCollapse() or 0
   Panels.window(ctx, state.panels.fretboard, "Fretboard", flags, function(ctx)
+    update_panel_layout("fretboard")
     if reaper.ImGui_IsWindowFocused and reaper.ImGui_FocusedFlags_RootAndChildWindows then
       state.fretboardFocused = reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows())
     end
@@ -1503,6 +1835,7 @@ end
 
 local function draw_color_picker_panel()
   if state.panels.colorPicker.value then
+    apply_pending_layout("colorPicker", "colorPickerWindowInitialized")
     if not state.colorPickerWindowInitialized then
       reaper.ImGui_SetNextWindowSize(ctx, 520, 420, reaper.ImGui_Cond_FirstUseEver())
       if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
@@ -1517,6 +1850,7 @@ local function draw_color_picker_panel()
   end
 
   Panels.window(ctx, state.panels.colorPicker, "Color Picker", 0, function(ctx)
+    update_panel_layout("colorPicker")
     local settings_changed = false
     local rv
     local key = state.colorPickerKey or "background"
@@ -1562,8 +1896,6 @@ local function draw_color_picker_panel()
     if settings_changed then
       apply_settings_change()
     end
-
-    draw_preset_save_modal(ctx)
   end)
 end
 
@@ -1704,6 +2036,7 @@ end
 
 local function draw_settings_panel()
   if state.panels.settings.value then
+    apply_pending_layout("settings", "settingsWindowInitialized")
     if not state.settingsWindowInitialized then
       reaper.ImGui_SetNextWindowSize(ctx, 560, 520, reaper.ImGui_Cond_FirstUseEver())
       if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
@@ -1718,6 +2051,7 @@ local function draw_settings_panel()
   end
 
   Panels.window(ctx, state.panels.settings, "Settings", 0, function(ctx)
+    update_panel_layout("settings")
     local settings_changed = false
     local settings_reset = false
     local rv
@@ -2086,8 +2420,6 @@ local function draw_settings_panel()
       apply_settings_change()
     end
 
-    draw_preset_save_modal(ctx)
-
     if reaper.ImGui_Button(ctx, "Close") then
       state.panels.settings.value = false
     end
@@ -2099,9 +2431,27 @@ local function draw_ui()
     cleanup()
     return
   end
+  apply_pending_layout("main", "windowInitialized")
   if not state.windowInitialized then
-    reaper.ImGui_SetNextWindowSize(ctx, 900, 360, reaper.ImGui_Cond_FirstUseEver())
-    reaper.ImGui_SetNextWindowPos(ctx, 100, 100, reaper.ImGui_Cond_FirstUseEver())
+    local default_w, default_h = 900, 360
+    reaper.ImGui_SetNextWindowSize(ctx, default_w, default_h, reaper.ImGui_Cond_FirstUseEver())
+    if reaper.ImGui_GetMainViewport and reaper.ImGui_Viewport_GetWorkPos and reaper.ImGui_Viewport_GetWorkSize then
+      local viewport = reaper.ImGui_GetMainViewport(ctx)
+      if viewport then
+        local work_x, work_y = reaper.ImGui_Viewport_GetWorkPos(viewport)
+        local work_w, work_h = reaper.ImGui_Viewport_GetWorkSize(viewport)
+        reaper.ImGui_SetNextWindowPos(
+          ctx,
+          work_x + (work_w - default_w) * 0.5,
+          work_y + (work_h - default_h) * 0.5,
+          reaper.ImGui_Cond_FirstUseEver()
+        )
+      else
+        reaper.ImGui_SetNextWindowPos(ctx, 100, 100, reaper.ImGui_Cond_FirstUseEver())
+      end
+    else
+      reaper.ImGui_SetNextWindowPos(ctx, 100, 100, reaper.ImGui_Cond_FirstUseEver())
+    end
     if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
       reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
     end
@@ -2167,6 +2517,7 @@ local function draw_ui()
 
   local main_flags = 0
   Panels.window(ctx, state.panels.main, "luaTab", main_flags, function(ctx)
+    update_panel_layout("main")
     Panels.dockspace(ctx, "luaTabDock")
 
     if now - state.lastHeartbeat >= 1.0 then
@@ -2181,45 +2532,94 @@ local function draw_ui()
 
     reaper.ImGui_Text(ctx, "Tuning")
     reaper.ImGui_SameLine(ctx)
-    local preset_labels = tuning_labels
-    local preset_index = preset_index_for_id(tuning_presets, cfg.tuningPreset or "custom", "custom") - 1
+    local tuning_current_index = preset_index_for_id(tuning_presets, cfg.tuningPreset or "custom", "custom")
+    local tuning_current = tuning_presets[tuning_current_index]
+    local tuning_label = tuning_current and (tuning_current.label or tuning_current.name or tuning_current.id) or ""
     reaper.ImGui_SetNextItemWidth(ctx, 190)
-    rv, preset_index = reaper.ImGui_Combo(ctx, "##TuningPreset", preset_index, preset_labels)
-    if rv then
-      local preset = tuning_presets[preset_index + 1]
-      if preset and preset.id == "custom" then
-        cfg.tuningPreset = "custom"
-        quick_changed = true
-      elseif apply_tuning_preset(cfg, preset) then
-        quick_changed = true
+    if reaper.ImGui_BeginCombo and reaper.ImGui_BeginCombo(ctx, "##TuningPreset", tuning_label) then
+      for i, preset in ipairs(tuning_presets) do
+        if reaper.ImGui_PushID then
+          reaper.ImGui_PushID(ctx, i)
+        end
+        local selected = preset.id == cfg.tuningPreset
+        if reaper.ImGui_Selectable(ctx, preset.label or preset.name or preset.id, selected) then
+          if preset.id == "custom" then
+            cfg.tuningPreset = "custom"
+            quick_changed = true
+          elseif apply_tuning_preset(cfg, preset) then
+            quick_changed = true
+          end
+        end
+        if reaper.ImGui_PopID then
+          reaper.ImGui_PopID(ctx)
+        end
+      end
+      if reaper.ImGui_EndCombo then
+        reaper.ImGui_EndCombo(ctx)
       end
     end
 
     reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Colors")
     reaper.ImGui_SameLine(ctx)
-    local color_preset_labels = color_labels
-    local color_index = color_preset_index(cfg.colorPreset or "dark") - 1
+    local color_current_index = color_preset_index(cfg.colorPreset or "dark")
+    local color_current = color_presets[color_current_index]
+    local color_label = color_current and (color_current.label or color_current.name or color_current.id) or ""
     reaper.ImGui_SetNextItemWidth(ctx, 120)
-    rv, color_index = reaper.ImGui_Combo(ctx, "##ColorPreset", color_index, color_preset_labels)
-    if rv then
-      local preset = color_presets[color_index + 1]
-      if apply_color_preset(cfg, preset) then
-        quick_changed = true
+    if reaper.ImGui_BeginCombo and reaper.ImGui_BeginCombo(ctx, "##ColorPreset", color_label) then
+      for i, preset in ipairs(color_presets) do
+        if reaper.ImGui_PushID then
+          reaper.ImGui_PushID(ctx, i)
+        end
+        local selected = preset.id == cfg.colorPreset
+        if reaper.ImGui_Selectable(ctx, preset.label or preset.name or preset.id, selected) then
+          if apply_color_preset(cfg, preset) then
+            quick_changed = true
+          end
+        end
+        if reaper.ImGui_PopID then
+          reaper.ImGui_PopID(ctx)
+        end
+      end
+      if reaper.ImGui_Selectable then
+        if reaper.ImGui_Selectable(ctx, "Save current as preset...", false) then
+          open_preset_save("color")
+        end
+      end
+      if reaper.ImGui_EndCombo then
+        reaper.ImGui_EndCombo(ctx)
       end
     end
 
     reaper.ImGui_SameLine(ctx)
     reaper.ImGui_Text(ctx, "Style")
     reaper.ImGui_SameLine(ctx)
-    local style_preset_labels = style_labels
-    local style_index = style_preset_index(cfg.stylePreset or "default") - 1
+    local style_current_index = style_preset_index(cfg.stylePreset or "default")
+    local style_current = style_presets[style_current_index]
+    local style_label = style_current and (style_current.label or style_current.name or style_current.id) or ""
     reaper.ImGui_SetNextItemWidth(ctx, 140)
-    rv, style_index = reaper.ImGui_Combo(ctx, "##StylePreset", style_index, style_preset_labels)
-    if rv then
-      local preset = style_presets[style_index + 1]
-      if apply_style_preset(cfg, preset) then
-        quick_changed = true
+    if reaper.ImGui_BeginCombo and reaper.ImGui_BeginCombo(ctx, "##StylePreset", style_label) then
+      for i, preset in ipairs(style_presets) do
+        if reaper.ImGui_PushID then
+          reaper.ImGui_PushID(ctx, i)
+        end
+        local selected = preset.id == cfg.stylePreset
+        if reaper.ImGui_Selectable(ctx, preset.label or preset.name or preset.id, selected) then
+          if apply_style_preset(cfg, preset) then
+            quick_changed = true
+          end
+        end
+        if reaper.ImGui_PopID then
+          reaper.ImGui_PopID(ctx)
+        end
+      end
+      if reaper.ImGui_Selectable then
+        if reaper.ImGui_Selectable(ctx, "Save current as preset...", false) then
+          open_preset_save("style")
+        end
+      end
+      if reaper.ImGui_EndCombo then
+        reaper.ImGui_EndCombo(ctx)
       end
     end
 
@@ -2282,6 +2682,8 @@ local function draw_ui()
     if quick_changed then
       apply_settings_change()
     end
+
+    draw_preset_save_modal(ctx)
 
     local avail_x, _ = reaper.ImGui_GetContentRegionAvail(ctx)
     local bars_per_system = layout.calc_bars_per_system(cfg, avail_x)

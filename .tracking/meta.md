@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-16 12:02 UTC
+- Last updated: 2026-02-16 14:31 UTC
 
 ---
 
@@ -43,6 +43,34 @@ Format:
   Files: luaTab.lua, .tracking/030-gear-panels-menu.md
   Functions: draw_ui()
   Related: #028
+
+- [done] 035-center-main-autofocus — Center main window + autofocus save modal (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/035-center-main-autofocus.md
+  Functions: draw_ui(), draw_preset_save_modal(), apply_pending_layout()
+  Related: #034
+
+- [done] 034-preset-modal-enter-safe-layout — Preset modal Enter + safe layout apply (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/034-preset-modal-enter-safe-layout.md
+  Functions: draw_preset_save_modal(), apply_pending_layout()
+  Related: #032
+
+- [done] 033-preset-dropdown-save — Preset dropdown save option (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/033-preset-dropdown-save.md
+  Functions: draw_ui()
+  Related: #027
+
+- [done] 032-style-preset-layout — Style preset layout (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, planning/configuration.md, .tracking/032-style-preset-layout.md
+  Functions: apply_style_preset(), capture_style_preset(), load_user_style_presets(), save_user_style_presets(), draw_ui()
+  Related: #027
 
 - [done] 031-color-picker-panel — Color Picker panel (2026-02-16) — Owner: agent
   Type: feature
