@@ -1,16 +1,14 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
- - Last updated: 2026-02-15 08:20 UTC
+ - Last updated: 2026-02-15 15:55 UTC
 
 ---
 
 ## Active Task Stack
 
-## Active Task Stack
-
 - Top (current):
-  - (empty)
+  - #024-status-bar — Status: in-progress — Owner: agent
 - Stack:
   - (empty)
 
@@ -39,7 +37,105 @@ Format:
 
 ---
 
- - [done] 013-bar-layout-resize — Bar layout resize fit (2026-02-15) — Owner: agent
+- [done] 023-gear-overlay — Gear overlay button (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/023-gear-overlay.md
+  Functions: draw_ui()
+  Related: #022
+
+- [in-progress] 024-status-bar — Status bar overlay (2026-02-16) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/024-status-bar.md
+  Functions: draw_ui()
+  Related: #023
+
+- [done] 025-reset-settings — Reset settings emergency fix (2026-02-16) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/config.lua, luaTab.lua, planning/configuration.md, .tracking/025-reset-settings.md
+  Functions: config.reset(), draw_ui()
+  Related: #024
+
+- [done] 026-fretboard-dock-flicker — Fretboard dock flicker fix (2026-02-16) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/026-fretboard-dock-flicker.md
+  Functions: draw_fretboard_popup()
+  Related: #025
+
+- [in-progress] 026-fretboard-dock-flicker — Fretboard dock flicker fix (2026-02-16) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/026-fretboard-dock-flicker.md
+  Functions: draw_fretboard_popup()
+  Related: #025
+
+- [done] 022-time-sig-gear-size — Time sig offset + gear size (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/render.lua, luaTab.lua, .tracking/022-time-sig-gear-size.md
+  Functions: time_sig_y(), draw_ui()
+  Related: #021
+
+- [done] 021-time-sig-center — Center time signatures (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/render.lua, .tracking/021-time-sig-center.md
+  Functions: render.draw_systems(), draw_time_sig()
+  Related: #009
+
+- [done] 020-ui-dropdown-bg-gear-row — UI dropdown background + gear row (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/020-ui-dropdown-bg-gear-row.md
+  Functions: draw_ui(), config.load(), config.save(), apply_color_preset()
+  Related: #019
+
+- [done] 019-ui-text-gear — UI text color + gear button (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, planning/configuration.md, .tracking/019-ui-text-gear.md
+  Functions: draw_ui(), config.load(), config.save(), apply_color_preset()
+  Related: #018
+
+- [done] 018-main-controls-settings-reorg — Main controls + settings reorg (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, .tracking/018-main-controls-settings-reorg.md
+  Functions: draw_ui(), apply_settings_change()
+  Related: #005
+
+- [done] 017-fretboard-close-focus — Fretboard close + focus (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, .tracking/017-fretboard-close-focus.md
+  Functions: draw_fretboard_popup(), draw_ui()
+  Related: #014, #016
+
+- [done] 016-fretboard-popup-align — Fretboard popup alignment (2026-02-15) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/render.lua, .tracking/016-fretboard-popup-align.md
+  Functions: render.draw_fretboard()
+  Related: #015
+
+- [done] 015-fretboard-popup-refine — Fretboard popup refinements (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/render.lua, planning/configuration.md, .tracking/015-fretboard-popup-refine.md
+  Functions: render.draw_fretboard(), config.load(), config.save(), clamp_config(), draw_ui()
+  Related: #014
+
+- [done] 014-fretboard-popup — Fretboard popup (2026-02-15) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/render.lua, planning/configuration.md, .tracking/014-fretboard-popup.md, .tracking/architecture.md
+  Functions: config.load(), config.save(), clamp_config(), draw_ui(), render.draw_fretboard()
+  Related: #005, #007
+
+- [done] 013-bar-layout-resize — Bar layout resize fit (2026-02-15) — Owner: agent
   Type: bugfix
   Stability: experimental
   Files: lib/layout.lua, lib/render.lua, luaTab.lua, .tracking/013-bar-layout-resize.md

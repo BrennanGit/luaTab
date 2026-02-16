@@ -22,6 +22,8 @@ config.defaults = {
 
   colors = {
     background = { 0.08, 0.08, 0.08, 1.0 },
+    uiText = { 1.0, 1.0, 1.0, 1.0 },
+    uiControlBg = { 0.18, 0.18, 0.18, 1.0 },
     strings = { 0.7, 0.7, 0.7, 1.0 },
     barlines = { 0.4, 0.4, 0.4, 1.0 },
     itemBoundary = { 0.7, 0.7, 0.7, 1.0 },
@@ -29,6 +31,11 @@ config.defaults = {
     dropped = { 1.0, 0.25, 0.25, 1.0 },
     marker = { 1.0, 0.2, 0.2, 0.18 },
     noteBg = { 0.05, 0.05, 0.05, 0.85 },
+    fretboardBg = { 0.06, 0.06, 0.06, 1.0 },
+    fretboardStrings = { 0.55, 0.55, 0.55, 1.0 },
+    fretboardFrets = { 0.35, 0.35, 0.35, 1.0 },
+    fretboardCurrent = { 0.2, 0.8, 0.3, 1.0 },
+    fretboardNext = { 0.9, 0.7, 0.2, 1.0 },
   },
 
   colorPreset = "dark",
@@ -73,6 +80,17 @@ config.defaults = {
   updateMode = "bar",
   updateStep = 1,
   antidelayBeats = 0,
+
+  fretboardMode = "hidden",
+  fretboardNextCount = 6,
+  fretboardNextBars = 2,
+  fretboardNextStyle = "outline",
+  fretboardFrets = 12,
+  fretboardNoteRoundness = 0.3,
+  fretboardNoteSize = 1.0,
+  fretboardDotSize = 1.0,
+  fretboardFretThickness = 1.0,
+  fretboardStringThickness = 1.0,
 }
 
 local function read_number(section, key, fallback)
@@ -132,6 +150,21 @@ local function write_color(section, key, color)
   write_value(section, key .. ".a", color[4])
 end
 
+local function delete_value(section, key)
+  if reaper.DeleteExtState then
+    reaper.DeleteExtState(section, key, true)
+  else
+    reaper.SetExtState(section, key, "", true)
+  end
+end
+
+local function delete_color(section, key)
+  delete_value(section, key .. ".r")
+  delete_value(section, key .. ".g")
+  delete_value(section, key .. ".b")
+  delete_value(section, key .. ".a")
+end
+
 function config.load(section)
   local cfg = util.copy_table(config.defaults)
   local ns = section or "luaTab"
@@ -156,11 +189,18 @@ function config.load(section)
   cfg.colors.strings = read_color(ns, "colors.strings", cfg.colors.strings)
   cfg.colors.barlines = read_color(ns, "colors.barlines", cfg.colors.barlines)
   cfg.colors.itemBoundary = read_color(ns, "colors.itemBoundary", cfg.colors.itemBoundary)
+  cfg.colors.uiText = read_color(ns, "colors.uiText", cfg.colors.uiText)
+  cfg.colors.uiControlBg = read_color(ns, "colors.uiControlBg", cfg.colors.uiControlBg)
   cfg.colors.text = read_color(ns, "colors.text", cfg.colors.text)
   cfg.colors.background = read_color(ns, "colors.background", cfg.colors.background)
   cfg.colors.dropped = read_color(ns, "colors.dropped", cfg.colors.dropped)
   cfg.colors.marker = read_color(ns, "colors.marker", cfg.colors.marker)
   cfg.colors.noteBg = read_color(ns, "colors.noteBg", cfg.colors.noteBg)
+  cfg.colors.fretboardBg = read_color(ns, "colors.fretboardBg", cfg.colors.fretboardBg)
+  cfg.colors.fretboardStrings = read_color(ns, "colors.fretboardStrings", cfg.colors.fretboardStrings)
+  cfg.colors.fretboardFrets = read_color(ns, "colors.fretboardFrets", cfg.colors.fretboardFrets)
+  cfg.colors.fretboardCurrent = read_color(ns, "colors.fretboardCurrent", cfg.colors.fretboardCurrent)
+  cfg.colors.fretboardNext = read_color(ns, "colors.fretboardNext", cfg.colors.fretboardNext)
 
   cfg.maxFret = read_number(ns, "maxFret", cfg.maxFret)
   cfg.maxFrettedSpan = read_number(ns, "maxFrettedSpan", cfg.maxFrettedSpan)
@@ -177,6 +217,17 @@ function config.load(section)
   cfg.updateMode = read_string(ns, "updateMode", cfg.updateMode)
   cfg.updateStep = read_number(ns, "updateStep", cfg.updateStep)
   cfg.antidelayBeats = read_number(ns, "antidelayBeats", cfg.antidelayBeats)
+
+  cfg.fretboardMode = read_string(ns, "fretboardMode", cfg.fretboardMode)
+  cfg.fretboardNextCount = read_number(ns, "fretboardNextCount", cfg.fretboardNextCount)
+  cfg.fretboardNextBars = read_number(ns, "fretboardNextBars", cfg.fretboardNextBars)
+  cfg.fretboardNextStyle = read_string(ns, "fretboardNextStyle", cfg.fretboardNextStyle)
+  cfg.fretboardFrets = read_number(ns, "fretboardFrets", cfg.fretboardFrets)
+  cfg.fretboardNoteRoundness = read_number(ns, "fretboardNoteRoundness", cfg.fretboardNoteRoundness)
+  cfg.fretboardNoteSize = read_number(ns, "fretboardNoteSize", cfg.fretboardNoteSize)
+  cfg.fretboardDotSize = read_number(ns, "fretboardDotSize", cfg.fretboardDotSize)
+  cfg.fretboardFretThickness = read_number(ns, "fretboardFretThickness", cfg.fretboardFretThickness)
+  cfg.fretboardStringThickness = read_number(ns, "fretboardStringThickness", cfg.fretboardStringThickness)
 
   cfg.tuningPreset = read_string(ns, "tuningPreset", cfg.tuningPreset)
 
@@ -232,11 +283,18 @@ function config.save(cfg, section)
   write_color(ns, "colors.strings", cfg.colors and cfg.colors.strings)
   write_color(ns, "colors.barlines", cfg.colors and cfg.colors.barlines)
   write_color(ns, "colors.itemBoundary", cfg.colors and cfg.colors.itemBoundary)
+  write_color(ns, "colors.uiText", cfg.colors and cfg.colors.uiText)
+  write_color(ns, "colors.uiControlBg", cfg.colors and cfg.colors.uiControlBg)
   write_color(ns, "colors.text", cfg.colors and cfg.colors.text)
   write_color(ns, "colors.background", cfg.colors and cfg.colors.background)
   write_color(ns, "colors.dropped", cfg.colors and cfg.colors.dropped)
   write_color(ns, "colors.marker", cfg.colors and cfg.colors.marker)
   write_color(ns, "colors.noteBg", cfg.colors and cfg.colors.noteBg)
+  write_color(ns, "colors.fretboardBg", cfg.colors and cfg.colors.fretboardBg)
+  write_color(ns, "colors.fretboardStrings", cfg.colors and cfg.colors.fretboardStrings)
+  write_color(ns, "colors.fretboardFrets", cfg.colors and cfg.colors.fretboardFrets)
+  write_color(ns, "colors.fretboardCurrent", cfg.colors and cfg.colors.fretboardCurrent)
+  write_color(ns, "colors.fretboardNext", cfg.colors and cfg.colors.fretboardNext)
 
   write_value(ns, "maxFret", cfg.maxFret)
   write_value(ns, "maxFrettedSpan", cfg.maxFrettedSpan)
@@ -253,6 +311,17 @@ function config.save(cfg, section)
   write_value(ns, "updateMode", cfg.updateMode)
   write_value(ns, "updateStep", cfg.updateStep)
   write_value(ns, "antidelayBeats", cfg.antidelayBeats)
+
+  write_value(ns, "fretboardMode", cfg.fretboardMode)
+  write_value(ns, "fretboardNextCount", cfg.fretboardNextCount)
+  write_value(ns, "fretboardNextBars", cfg.fretboardNextBars)
+  write_value(ns, "fretboardNextStyle", cfg.fretboardNextStyle)
+  write_value(ns, "fretboardFrets", cfg.fretboardFrets)
+  write_value(ns, "fretboardNoteRoundness", cfg.fretboardNoteRoundness)
+  write_value(ns, "fretboardNoteSize", cfg.fretboardNoteSize)
+  write_value(ns, "fretboardDotSize", cfg.fretboardDotSize)
+  write_value(ns, "fretboardFretThickness", cfg.fretboardFretThickness)
+  write_value(ns, "fretboardStringThickness", cfg.fretboardStringThickness)
 
   write_value(ns, "tuningPreset", cfg.tuningPreset or "custom")
 
@@ -273,6 +342,108 @@ function config.save(cfg, section)
   for i, string_info in ipairs(cfg.tuning) do
     write_value(ns, string.format("tuning.%d.name", i), string_info.name)
     write_value(ns, string.format("tuning.%d.open", i), string_info.open)
+  end
+end
+
+function config.reset(section)
+  local ns = section or "luaTab"
+  local keys = {
+    "followPlay",
+    "followEditWhenStopped",
+    "prevBars",
+    "nextBars",
+    "systemGutterPx",
+    "barPrefixPx",
+    "barContentPx",
+    "barGutterPx",
+    "systemRowGapPx",
+    "staffPaddingTopPx",
+    "staffPaddingBottomPx",
+    "stringSpacingPx",
+    "barLineThickness",
+    "itemBoundaryThickness",
+    "maxFret",
+    "maxFrettedSpan",
+    "maxSimul",
+    "groupEpsilonMs",
+    "logEnabled",
+    "logVerbose",
+    "logPath",
+    "colorPreset",
+    "updateMode",
+    "updateStep",
+    "antidelayBeats",
+    "fretboardMode",
+    "fretboardNextCount",
+    "fretboardNextBars",
+    "fretboardNextStyle",
+    "fretboardFrets",
+    "fretboardNoteRoundness",
+    "fretboardNoteSize",
+    "fretboardDotSize",
+    "fretboardFretThickness",
+    "fretboardStringThickness",
+    "tuningPreset",
+    "reducePreferHighest",
+    "showFirstTimeSigInSystemGutter",
+    "tuning.count",
+  }
+  for _, key in ipairs(keys) do
+    delete_value(ns, key)
+  end
+
+  local color_keys = {
+    "background",
+    "uiText",
+    "uiControlBg",
+    "strings",
+    "barlines",
+    "itemBoundary",
+    "text",
+    "dropped",
+    "marker",
+    "noteBg",
+    "fretboardBg",
+    "fretboardStrings",
+    "fretboardFrets",
+    "fretboardCurrent",
+    "fretboardNext",
+  }
+  for _, key in ipairs(color_keys) do
+    delete_color(ns, "colors." .. key)
+  end
+
+  local weight_keys = {
+    "lowFret",
+    "stayOnString",
+    "stringJump",
+    "fretJump",
+    "highFret",
+  }
+  for _, key in ipairs(weight_keys) do
+    delete_value(ns, "weights." .. key)
+  end
+
+  local font_keys = {
+    "fretScale",
+    "timeSigScale",
+    "droppedScale",
+  }
+  for _, key in ipairs(font_keys) do
+    delete_value(ns, "fonts." .. key)
+  end
+
+  if reaper.HasExtState then
+    local i = 1
+    while reaper.HasExtState(ns, string.format("tuning.%d.name", i))
+      or reaper.HasExtState(ns, string.format("tuning.%d.open", i)) do
+      delete_value(ns, string.format("tuning.%d.name", i))
+      delete_value(ns, string.format("tuning.%d.open", i))
+      i = i + 1
+      if i > 64 then
+        break
+      end
+    end
   end
 end
 

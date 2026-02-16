@@ -25,6 +25,10 @@ Recommended:
 Later: allow export/import of presets (tuning + weights + layout).
 For offline simplicity, a simple key-value format or JSON can be used.
 
+### 1.3 Resetting to defaults
+- Settings popup includes a "Reset all settings" action.
+- Emergency reset: create a file named "luaTab.reset" in the script directory, then run the script once. The marker file is deleted after the reset and the ImGui layout ini is cleared for this script.
+
 ---
 
 ## 2. User-Facing Knobs (UI)
@@ -95,6 +99,18 @@ UI option (later):
 - `maxCachedItems` (int): LRU cap
 - `mergeOverlaps` (bool): how to handle overlapping items (default true)
 
+### 2.10 Fretboard popup
+- `fretboardMode` (enum): hidden | current | next_notes | next_bars
+- `fretboardNextCount` (int): number of upcoming notes to show when mode = next_notes
+- `fretboardNextBars` (int): number of upcoming bars to show when mode = next_bars
+- `fretboardNextStyle` (enum): outline | outline_shade | outline_ramp
+- `fretboardFrets` (int): number of frets to display on the popup
+- `fretboardNoteRoundness` (float 0..1): note shape roundness (square -> circle)
+- `fretboardNoteSize` (float): note size multiplier
+- `fretboardDotSize` (float): fret marker size multiplier
+- `fretboardFretThickness` (float): fret line thickness
+- `fretboardStringThickness` (float): string line thickness
+
 ---
 
 ## 3. Styling Sheet (Visual Defaults)
@@ -133,6 +149,8 @@ These are mostly stable and should live in a separate module (e.g., `style.lua`)
 Runtime-configurable colors (via settings popup):
 - `colorPreset` (enum): dark, light
 - `colors.background`
+- `colors.uiText`
+- `colors.uiControlBg`
 - `colors.text`
 - `colors.strings`
 - `colors.barlines`
@@ -140,6 +158,11 @@ Runtime-configurable colors (via settings popup):
 - `colors.dropped`
 - `colors.marker`
 - `colors.noteBg`
+- `colors.fretboardBg`
+- `colors.fretboardStrings`
+- `colors.fretboardFrets`
+- `colors.fretboardCurrent`
+- `colors.fretboardNext`
 
 Colors are edited as hex strings (RRGGBB or RRGGBBAA) with labels describing usage.
 

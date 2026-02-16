@@ -61,6 +61,34 @@ local render = require("render")
 local ctx
 local cleaned = false
 
+local RESET_MARKER = script_dir .. "/luaTab.reset"
+
+local function reset_imgui_ini()
+  if not ctx or not reaper.ImGui_GetIniFilename then
+    return false
+  end
+  local ini_path = reaper.ImGui_GetIniFilename(ctx)
+  if ini_path and ini_path ~= "" then
+    os.remove(ini_path)
+    return true
+  end
+  return false
+end
+
+local function reset_config_from_marker()
+  local file = io.open(RESET_MARKER, "r")
+  if not file then
+    return false
+  end
+  file:close()
+  os.remove(RESET_MARKER)
+  if config_mod.reset then
+    config_mod.reset(SECTION)
+  end
+  reset_imgui_ini()
+  return true
+end
+
 local function cleanup()
   if cleaned then return end
   cleaned = true
@@ -83,12 +111,16 @@ if not reaper.APIExists or not reaper.APIExists("ImGui_CreateContext") then
 end
 
 ctx = reaper.ImGui_CreateContext("luaTab")
+local reset_requested = reset_config_from_marker()
 local cfg = config_mod.load("luaTab")
 if not cfg.logPath or cfg.logPath == "" then
   cfg.logPath = script_dir .. "/luaTab.log"
 end
 util.log_init(script_dir, cfg.logEnabled, cfg.logVerbose, cfg.logPath)
 util.log("luaTab started", "info")
+if reset_requested then
+  util.log("settings reset via marker file", "info")
+end
 
 local state = {
   lastBarIdx = nil,
@@ -107,6 +139,10 @@ local state = {
   lastHeartbeat = 0,
   colorHex = {},
   logPathBuf = nil,
+  fretboardWindowInitialized = false,
+  fretboardFocused = false,
+  fretboardUndockFrames = reset_requested and 12 or 0,
+  mainDockId = nil,
 }
 
 local tuning_presets = {
@@ -154,6 +190,8 @@ local color_presets = {
     label = "Dark",
     colors = {
       background = { 0.08, 0.08, 0.08, 1.0 },
+      uiText = { 0.92, 0.92, 0.92, 1.0 },
+      uiControlBg = { 0.18, 0.18, 0.18, 1.0 },
       text = { 1.0, 1.0, 1.0, 1.0 },
       strings = { 0.7, 0.7, 0.7, 1.0 },
       barlines = { 0.4, 0.4, 0.4, 1.0 },
@@ -161,6 +199,11 @@ local color_presets = {
       dropped = { 1.0, 0.25, 0.25, 1.0 },
       marker = { 1.0, 0.2, 0.2, 0.18 },
       noteBg = { 0.05, 0.05, 0.05, 0.85 },
+      fretboardBg = { 0.06, 0.06, 0.06, 1.0 },
+      fretboardStrings = { 0.55, 0.55, 0.55, 1.0 },
+      fretboardFrets = { 0.35, 0.35, 0.35, 1.0 },
+      fretboardCurrent = { 0.2, 0.8, 0.3, 1.0 },
+      fretboardNext = { 0.9, 0.7, 0.2, 1.0 },
     },
   },
   {
@@ -168,6 +211,8 @@ local color_presets = {
     label = "Light",
     colors = {
       background = { 0.96, 0.96, 0.96, 1.0 },
+      uiText = { 0.1, 0.1, 0.1, 1.0 },
+      uiControlBg = { 0.82, 0.82, 0.82, 1.0 },
       text = { 0.08, 0.08, 0.08, 1.0 },
       strings = { 0.35, 0.35, 0.35, 1.0 },
       barlines = { 0.2, 0.2, 0.2, 1.0 },
@@ -175,6 +220,11 @@ local color_presets = {
       dropped = { 0.75, 0.1, 0.1, 1.0 },
       marker = { 0.2, 0.4, 0.9, 0.18 },
       noteBg = { 1.0, 1.0, 1.0, 0.85 },
+      fretboardBg = { 0.98, 0.98, 0.98, 1.0 },
+      fretboardStrings = { 0.35, 0.35, 0.35, 1.0 },
+      fretboardFrets = { 0.25, 0.25, 0.25, 1.0 },
+      fretboardCurrent = { 0.1, 0.6, 0.2, 1.0 },
+      fretboardNext = { 0.9, 0.6, 0.1, 1.0 },
     },
   },
 }
@@ -238,6 +288,22 @@ local function clamp_config(cfg)
   cfg.stringSpacingPx = util.clamp(cfg.stringSpacingPx, 6, 40)
   cfg.barLineThickness = util.clamp(cfg.barLineThickness, 0.5, 6)
   cfg.itemBoundaryThickness = util.clamp(cfg.itemBoundaryThickness, 0.5, 6)
+  cfg.fretboardNextCount = util.clamp(cfg.fretboardNextCount, 0, 128)
+  cfg.fretboardNextBars = util.clamp(cfg.fretboardNextBars, 0, 32)
+  cfg.fretboardFrets = util.clamp(cfg.fretboardFrets, 1, 36)
+  cfg.fretboardNoteRoundness = util.clamp(cfg.fretboardNoteRoundness, 0, 1)
+  cfg.fretboardNoteSize = util.clamp(cfg.fretboardNoteSize, 0.3, 2.5)
+  cfg.fretboardDotSize = util.clamp(cfg.fretboardDotSize, 0.2, 3.0)
+  cfg.fretboardFretThickness = util.clamp(cfg.fretboardFretThickness, 0.5, 6.0)
+  cfg.fretboardStringThickness = util.clamp(cfg.fretboardStringThickness, 0.5, 6.0)
+  local fb_modes = { hidden = true, current = true, next_notes = true, next_bars = true }
+  if not fb_modes[cfg.fretboardMode] then
+    cfg.fretboardMode = "hidden"
+  end
+  local fb_styles = { outline = true, outline_shade = true, outline_ramp = true }
+  if not fb_styles[cfg.fretboardNextStyle] then
+    cfg.fretboardNextStyle = "outline"
+  end
   if cfg.fonts then
     cfg.fonts.fretScale = util.clamp(cfg.fonts.fretScale or 1.0, 0.6, 2.5)
     cfg.fonts.timeSigScale = util.clamp(cfg.fonts.timeSigScale or 1.4, 0.6, 3.0)
@@ -537,6 +603,179 @@ local function edit_float(ctx, label, value, min_value, max_value)
   return rv, value
 end
 
+local function collect_fretboard_current_notes(t)
+  local current_notes = {}
+  local current_map = {}
+  if not state.bars or #state.bars == 0 then
+    return current_notes, current_map
+  end
+
+  for _, bar in ipairs(state.bars) do
+    local events = state.eventsByBar[bar.idx] or {}
+    for _, event in ipairs(events) do
+      local assign_by_pitch = {}
+      for _, assign in ipairs(event.assignments or {}) do
+        assign_by_pitch[assign.pitch] = assign
+      end
+      for _, note in ipairs(event.notes or {}) do
+        if note.tStart <= t and t < note.tEnd then
+          local assign = assign_by_pitch[note.pitch]
+          if assign then
+            local key = tostring(assign.string) .. ":" .. tostring(assign.fret)
+            if not current_map[key] then
+              current_map[key] = true
+              current_notes[#current_notes + 1] = {
+                string = assign.string,
+                fret = assign.fret,
+                pitch = assign.pitch,
+              }
+            end
+          end
+        end
+      end
+    end
+  end
+
+  return current_notes, current_map
+end
+
+local function collect_fretboard_next_notes(t, current_bar, current_map)
+  local next_notes = {}
+  if cfg.fretboardMode == "next_notes" then
+    local remaining = cfg.fretboardNextCount or 0
+    if remaining <= 0 then
+      return next_notes
+    end
+    for _, bar in ipairs(state.bars) do
+      local events = state.eventsByBar[bar.idx] or {}
+      for _, event in ipairs(events) do
+        if event.t > t then
+          for _, assign in ipairs(event.assignments or {}) do
+            local key = tostring(assign.string) .. ":" .. tostring(assign.fret)
+            if not current_map[key] then
+              next_notes[#next_notes + 1] = {
+                string = assign.string,
+                fret = assign.fret,
+                pitch = assign.pitch,
+              }
+              remaining = remaining - 1
+              if remaining <= 0 then
+                return next_notes
+              end
+            end
+          end
+        end
+      end
+    end
+  elseif cfg.fretboardMode == "next_bars" then
+    local last_bar = current_bar + (cfg.fretboardNextBars or 0)
+    for _, bar in ipairs(state.bars) do
+      if bar.idx == current_bar or (bar.idx > current_bar and bar.idx <= last_bar) then
+        local events = state.eventsByBar[bar.idx] or {}
+        for _, event in ipairs(events) do
+          if bar.idx > current_bar or event.t >= t then
+            for _, assign in ipairs(event.assignments or {}) do
+              local key = tostring(assign.string) .. ":" .. tostring(assign.fret)
+              if not current_map[key] then
+                next_notes[#next_notes + 1] = {
+                  string = assign.string,
+                  fret = assign.fret,
+                  pitch = assign.pitch,
+                }
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  return next_notes
+end
+
+local function draw_fretboard_popup(t, current_bar)
+  if cfg.fretboardMode == "hidden" then
+    state.fretboardFocused = false
+    return
+  end
+  if not state.fretboardWindowInitialized then
+    reaper.ImGui_SetNextWindowSize(ctx, 520, 220, reaper.ImGui_Cond_FirstUseEver())
+    state.fretboardWindowInitialized = true
+  end
+
+  if state.fretboardUndockFrames and state.fretboardUndockFrames > 0 then
+    if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_Always then
+      reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_Always())
+    end
+    if reaper.ImGui_SetNextWindowPos then
+      reaper.ImGui_SetNextWindowPos(ctx, 140, 140, reaper.ImGui_Cond_Always())
+    end
+    state.fretboardUndockFrames = state.fretboardUndockFrames - 1
+  end
+
+  local flags = reaper.ImGui_WindowFlags_NoCollapse and reaper.ImGui_WindowFlags_NoCollapse() or 0
+  local ok, visible, open = pcall(reaper.ImGui_Begin, ctx, "Fretboard", true, flags)
+  if ok then
+    if reaper.ImGui_IsWindowFocused and reaper.ImGui_FocusedFlags_RootAndChildWindows then
+      state.fretboardFocused = reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows())
+    else
+      state.fretboardFocused = false
+    end
+
+    if open == false then
+      cfg.fretboardMode = "hidden"
+      state.fretboardFocused = false
+      config_mod.save(cfg, "luaTab")
+    end
+
+    if visible then
+      if reaper.ImGui_GetWindowDockID and reaper.ImGui_IsWindowDocked then
+        local dock_id = reaper.ImGui_GetWindowDockID(ctx)
+        local docked = reaper.ImGui_IsWindowDocked(ctx)
+        if docked and state.mainDockId and dock_id == state.mainDockId then
+          state.fretboardUndockFrames = 12
+        end
+      end
+      local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+      local x, y = reaper.ImGui_GetCursorScreenPos(ctx)
+      local w, h = reaper.ImGui_GetContentRegionAvail(ctx)
+      if w > 10 and h > 10 then
+        local current_notes, current_map = collect_fretboard_current_notes(t)
+        local next_notes = collect_fretboard_next_notes(t, current_bar, current_map)
+        render.draw_fretboard(draw_list, ctx, { x = x, y = y, w = w, h = h }, cfg, current_notes, next_notes, cfg.fretboardNextStyle)
+        reaper.ImGui_Dummy(ctx, w, h)
+      end
+    end
+    reaper.ImGui_End(ctx)
+  else
+    state.fretboardFocused = false
+  end
+end
+
+local function apply_settings_change()
+  clamp_config(cfg)
+  config_mod.save(cfg, "luaTab")
+  util.log_init(script_dir, cfg.logEnabled, cfg.logVerbose, cfg.logPath)
+  util.log("settings changed", "info")
+  rebuild_data(get_cursor_time())
+end
+
+local function reset_config_to_defaults()
+  if config_mod.reset then
+    config_mod.reset(SECTION)
+  end
+  cfg = config_mod.load("luaTab")
+  if not cfg.logPath or cfg.logPath == "" then
+    cfg.logPath = script_dir .. "/luaTab.log"
+  end
+  state.colorHex = {}
+  state.logPathBuf = nil
+  state.windowInitialized = false
+  state.fretboardWindowInitialized = false
+  state.fretboardFocused = false
+  apply_settings_change()
+end
+
 local function should_quit()
   return reaper.GetExtState(SECTION, KEY_QUIT) == "1"
 end
@@ -555,17 +794,59 @@ local function draw_ui()
   reaper.ImGui_SetNextWindowSizeConstraints(ctx, 640, 240, 4096, 4096)
 
   local pushed_bg = false
+  local pushed_text = false
+  local pushed_popup = false
+  local pushed_controls = false
+  local pushed_buttons = false
+  local function lighten_color(color, amount)
+    return {
+      util.clamp(color[1] + amount, 0, 1),
+      util.clamp(color[2] + amount, 0, 1),
+      util.clamp(color[3] + amount, 0, 1),
+      1.0,
+    }
+  end
   if cfg.colors and cfg.colors.background and reaper.ImGui_PushStyleColor and reaper.ImGui_Col_WindowBg then
     local bg_col = util.color_u32(cfg.colors.background[1], cfg.colors.background[2], cfg.colors.background[3], cfg.colors.background[4])
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), bg_col)
     pushed_bg = true
   end
+  if cfg.colors and cfg.colors.uiText and reaper.ImGui_PushStyleColor and reaper.ImGui_Col_Text then
+    local text_col = util.color_u32(cfg.colors.uiText[1], cfg.colors.uiText[2], cfg.colors.uiText[3], cfg.colors.uiText[4])
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), text_col)
+    pushed_text = true
+  end
+  if cfg.colors and cfg.colors.background and reaper.ImGui_PushStyleColor and reaper.ImGui_Col_PopupBg then
+    local popup_col = util.color_u32(cfg.colors.background[1], cfg.colors.background[2], cfg.colors.background[3], cfg.colors.background[4])
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PopupBg(), popup_col)
+    pushed_popup = true
+  end
+  if cfg.colors and cfg.colors.uiControlBg and reaper.ImGui_PushStyleColor and reaper.ImGui_Col_FrameBg then
+    local control_col = util.color_u32(cfg.colors.uiControlBg[1], cfg.colors.uiControlBg[2], cfg.colors.uiControlBg[3], cfg.colors.uiControlBg[4])
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), control_col)
+    if reaper.ImGui_Col_FrameBgHovered then
+      reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBgHovered(), control_col)
+      reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBgActive(), control_col)
+      pushed_controls = true
+    end
+  end
+  if cfg.colors and cfg.colors.uiControlBg and reaper.ImGui_PushStyleColor and reaper.ImGui_Col_Button then
+    local base = cfg.colors.uiControlBg
+    local hover = lighten_color(base, 0.12)
+    local active = lighten_color(base, 0.18)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), util.color_u32(base[1], base[2], base[3], 1.0))
+    if reaper.ImGui_Col_ButtonHovered then
+      reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), util.color_u32(hover[1], hover[2], hover[3], hover[4]))
+      reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), util.color_u32(active[1], active[2], active[3], active[4]))
+      pushed_buttons = true
+    end
+  end
 
-  local ok, visible, open = pcall(reaper.ImGui_Begin, ctx, "luaTab", true, reaper.ImGui_WindowFlags_MenuBar())
+  local ok, visible, open = pcall(reaper.ImGui_Begin, ctx, "luaTab", true)
   local began = ok and (visible ~= nil)
   if not began then
-    if pushed_bg and reaper.ImGui_PopStyleColor then
-      reaper.ImGui_PopStyleColor(ctx)
+    if (pushed_bg or pushed_text or pushed_popup or pushed_controls or pushed_buttons) and reaper.ImGui_PopStyleColor then
+      reaper.ImGui_PopStyleColor(ctx, (pushed_bg and 1 or 0) + (pushed_text and 1 or 0) + (pushed_popup and 1 or 0) + (pushed_controls and 3 or 0) + (pushed_buttons and 3 or 0))
     end
     reaper.defer(draw_ui)
     return
@@ -576,6 +857,9 @@ local function draw_ui()
   end
 
   if visible then
+    if reaper.ImGui_GetWindowDockID then
+      state.mainDockId = reaper.ImGui_GetWindowDockID(ctx)
+    end
     local now = now_time()
     if now - state.lastHeartbeat >= 1.0 then
       reaper.SetExtState(SECTION, KEY_HEARTBEAT, tostring(now), false)
@@ -587,11 +871,102 @@ local function draw_ui()
     local take = select(1, source.get_take(t))
     local take_id = take and tostring(take) or nil
 
-    if reaper.ImGui_BeginMenuBar(ctx) then
-      if reaper.ImGui_MenuItem(ctx, "Settings") then
-        state.settingsOpen = true
+    local quick_changed = false
+    local rv
+    local controls_x, controls_y = reaper.ImGui_GetCursorScreenPos(ctx)
+    local controls_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
+
+    reaper.ImGui_Text(ctx, "Tuning")
+    reaper.ImGui_SameLine(ctx)
+    local preset_labels = "Mandolin (GDAE)\0Guitar (EADGBe)\0Bass (EADG)\0Custom\0"
+    local preset_index = preset_index_for_id(cfg.tuningPreset or "custom") - 1
+    reaper.ImGui_SetNextItemWidth(ctx, 190)
+    rv, preset_index = reaper.ImGui_Combo(ctx, "##TuningPreset", preset_index, preset_labels)
+    if rv then
+      local preset = tuning_presets[preset_index + 1]
+      if preset and preset.id == "custom" then
+        cfg.tuningPreset = "custom"
+        quick_changed = true
+      elseif apply_tuning_preset(cfg, preset) then
+        quick_changed = true
       end
-      reaper.ImGui_EndMenuBar(ctx)
+    end
+
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_Text(ctx, "Colors")
+    reaper.ImGui_SameLine(ctx)
+    local color_labels = "Dark\0Light\0"
+    local color_index = color_preset_index(cfg.colorPreset or "dark") - 1
+    reaper.ImGui_SetNextItemWidth(ctx, 120)
+    rv, color_index = reaper.ImGui_Combo(ctx, "##ColorPreset", color_index, color_labels)
+    if rv then
+      local preset = color_presets[color_index + 1]
+      if apply_color_preset(cfg, preset) then
+        quick_changed = true
+      end
+    end
+
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_Text(ctx, "Fretboard")
+    reaper.ImGui_SameLine(ctx)
+    local mode_labels = "Hidden\0Only current note\0Current note + next N notes\0Current note + current bar + next N bars\0"
+    local mode_values = { "hidden", "current", "next_notes", "next_bars" }
+    local mode_index = 0
+    for i, mode in ipairs(mode_values) do
+      if mode == cfg.fretboardMode then
+        mode_index = i - 1
+        break
+      end
+    end
+    reaper.ImGui_SetNextItemWidth(ctx, 220)
+    rv, mode_index = reaper.ImGui_Combo(ctx, "##FretboardMode", mode_index, mode_labels)
+    if rv then
+      cfg.fretboardMode = mode_values[mode_index + 1] or "hidden"
+      quick_changed = true
+    end
+
+    reaper.ImGui_Text(ctx, "Bars")
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_SetNextItemWidth(ctx, 90)
+    rv, cfg.prevBars = edit_int(ctx, "##PrevBars", cfg.prevBars, 0, 64)
+    quick_changed = quick_changed or rv
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_Text(ctx, "Prev")
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_SetNextItemWidth(ctx, 90)
+    rv, cfg.nextBars = edit_int(ctx, "##NextBars", cfg.nextBars, 0, 64)
+    quick_changed = quick_changed or rv
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_Text(ctx, "Next")
+
+    reaper.ImGui_SameLine(ctx)
+    reaper.ImGui_Text(ctx, "Update")
+    reaper.ImGui_SameLine(ctx)
+    local update_modes = { "bar", "step", "screen", "continuous" }
+    local update_labels = "Every bar\0Every N bars\0Bars on screen width\0Continuous\0"
+    local update_index = 0
+    for i, name in ipairs(update_modes) do
+      if name == cfg.updateMode then
+        update_index = i - 1
+        break
+      end
+    end
+    reaper.ImGui_SetNextItemWidth(ctx, 180)
+    rv, update_index = reaper.ImGui_Combo(ctx, "##UpdateMode", update_index, update_labels)
+    if rv then
+      cfg.updateMode = update_modes[update_index + 1] or "bar"
+      quick_changed = true
+    end
+
+    if cfg.updateMode == "step" then
+      reaper.ImGui_SameLine(ctx)
+      reaper.ImGui_SetNextItemWidth(ctx, 80)
+      rv, cfg.updateStep = edit_int(ctx, "##UpdateStep", cfg.updateStep, 1, 64)
+      quick_changed = quick_changed or rv
+    end
+
+    if quick_changed then
+      apply_settings_change()
     end
 
     if state.settingsOpen then
@@ -604,23 +979,10 @@ local function draw_ui()
     local settings_visible = reaper.ImGui_BeginPopupModal(ctx, "Settings", true, 0)
     if settings_visible then
       local settings_changed = false
+      local settings_reset = false
       local rv
 
       if reaper.ImGui_CollapsingHeader(ctx, "Tuning", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        local preset_labels = "Mandolin (GDAE)\0Guitar (EADGBe)\0Bass (EADG)\0Custom\0"
-        local preset_index = preset_index_for_id(cfg.tuningPreset or "custom") - 1
-        reaper.ImGui_SetNextItemWidth(ctx, 220)
-        rv, preset_index = reaper.ImGui_Combo(ctx, "Preset", preset_index, preset_labels)
-        if rv then
-          local preset = tuning_presets[preset_index + 1]
-          if preset and preset.id == "custom" then
-            cfg.tuningPreset = "custom"
-            settings_changed = true
-          elseif apply_tuning_preset(cfg, preset) then
-            settings_changed = true
-          end
-        end
-
         local tuning_changed = false
         for i, string_info in ipairs(cfg.tuning) do
           reaper.ImGui_PushID(ctx, i)
@@ -683,17 +1045,7 @@ local function draw_ui()
       end
 
       if reaper.ImGui_CollapsingHeader(ctx, "Styling", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        local preset_labels = "Dark\0Light\0"
-        local preset_index = color_preset_index(cfg.colorPreset or "dark") - 1
-        reaper.ImGui_SetNextItemWidth(ctx, 160)
-        rv, preset_index = reaper.ImGui_Combo(ctx, "Color preset", preset_index, preset_labels)
-        if rv then
-          local preset = color_presets[preset_index + 1]
-          if apply_color_preset(cfg, preset) then
-            settings_changed = true
-          end
-        end
-
+        reaper.ImGui_Text(ctx, "Layout")
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.systemGutterPx = edit_int(ctx, "System gutter", cfg.systemGutterPx, 0, 300)
         settings_changed = settings_changed or rv
@@ -715,96 +1067,165 @@ local function draw_ui()
         reaper.ImGui_SetNextItemWidth(ctx, 140)
         rv, cfg.staffPaddingBottomPx = edit_int(ctx, "Staff pad bottom", cfg.staffPaddingBottomPx, 0, 80)
         settings_changed = settings_changed or rv
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.stringSpacingPx = edit_int(ctx, "String spacing", cfg.stringSpacingPx, 6, 40)
-        settings_changed = settings_changed or rv
-
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.barLineThickness = edit_float(ctx, "Barline thickness", cfg.barLineThickness, 0.5, 6)
-        settings_changed = settings_changed or rv
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.itemBoundaryThickness = edit_float(ctx, "Item boundary thickness", cfg.itemBoundaryThickness, 0.5, 6)
-        settings_changed = settings_changed or rv
-
-        rv, cfg.showFirstTimeSigInSystemGutter = reaper.ImGui_Checkbox(ctx, "Time signature in gutter", cfg.showFirstTimeSigInSystemGutter)
-        settings_changed = settings_changed or rv
 
         reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Text(ctx, "Fonts")
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.fonts.fretScale = edit_float(ctx, "Fret scale", cfg.fonts.fretScale, 0.6, 2.5)
-        settings_changed = settings_changed or rv
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.fonts.timeSigScale = edit_float(ctx, "Time sig scale", cfg.fonts.timeSigScale, 0.6, 3.0)
-        settings_changed = settings_changed or rv
-        reaper.ImGui_SetNextItemWidth(ctx, 140)
-        rv, cfg.fonts.droppedScale = edit_float(ctx, "Dropped scale", cfg.fonts.droppedScale, 0.5, 2.0)
-        settings_changed = settings_changed or rv
-
-        reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Text(ctx, "Colors (hex)")
+        reaper.ImGui_Text(ctx, "Background")
         draw_color_swatch(ctx, cfg.colors.background, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Background", "background", cfg.colors.background, true) or settings_changed
 
-        draw_color_swatch(ctx, cfg.colors.text, 14)
+        draw_color_swatch(ctx, cfg.colors.uiText, 14)
         reaper.ImGui_SameLine(ctx)
-        settings_changed = edit_color_hex(ctx, "Text (frets + labels)", "text", cfg.colors.text, true) or settings_changed
+        settings_changed = edit_color_hex(ctx, "UI text", "uiText", cfg.colors.uiText, true) or settings_changed
 
+        draw_color_swatch(ctx, cfg.colors.uiControlBg, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "UI controls", "uiControlBg", cfg.colors.uiControlBg, true) or settings_changed
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Strings")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.stringSpacingPx = edit_int(ctx, "String spacing", cfg.stringSpacingPx, 6, 40)
+        settings_changed = settings_changed or rv
         draw_color_swatch(ctx, cfg.colors.strings, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Strings (staff lines)", "strings", cfg.colors.strings, true) or settings_changed
 
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Barlines")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.barLineThickness = edit_float(ctx, "Barline thickness", cfg.barLineThickness, 0.5, 6)
+        settings_changed = settings_changed or rv
         draw_color_swatch(ctx, cfg.colors.barlines, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Barlines", "barlines", cfg.colors.barlines, true) or settings_changed
 
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Item boundaries")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.itemBoundaryThickness = edit_float(ctx, "Item boundary thickness", cfg.itemBoundaryThickness, 0.5, 6)
+        settings_changed = settings_changed or rv
         draw_color_swatch(ctx, cfg.colors.itemBoundary, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Item boundaries", "itemBoundary", cfg.colors.itemBoundary, true) or settings_changed
 
-        draw_color_swatch(ctx, cfg.colors.dropped, 14)
-        reaper.ImGui_SameLine(ctx)
-        settings_changed = edit_color_hex(ctx, "Dropped notes", "dropped", cfg.colors.dropped, true) or settings_changed
-
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Current bar highlight")
         draw_color_swatch(ctx, cfg.colors.marker, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Current bar highlight", "marker", cfg.colors.marker, true) or settings_changed
 
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Fret text")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fonts.fretScale = edit_float(ctx, "Fret scale", cfg.fonts.fretScale, 0.6, 2.5)
+        settings_changed = settings_changed or rv
+        draw_color_swatch(ctx, cfg.colors.text, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Text (frets + labels)", "text", cfg.colors.text, true) or settings_changed
         draw_color_swatch(ctx, cfg.colors.noteBg, 14)
         reaper.ImGui_SameLine(ctx)
         settings_changed = edit_color_hex(ctx, "Fret background", "noteBg", cfg.colors.noteBg, true) or settings_changed
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Dropped notes")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fonts.droppedScale = edit_float(ctx, "Dropped scale", cfg.fonts.droppedScale, 0.5, 2.0)
+        settings_changed = settings_changed or rv
+        draw_color_swatch(ctx, cfg.colors.dropped, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Dropped notes", "dropped", cfg.colors.dropped, true) or settings_changed
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Time signatures")
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fonts.timeSigScale = edit_float(ctx, "Time sig scale", cfg.fonts.timeSigScale, 0.6, 3.0)
+        settings_changed = settings_changed or rv
+        rv, cfg.showFirstTimeSigInSystemGutter = reaper.ImGui_Checkbox(ctx, "Time signature in gutter", cfg.showFirstTimeSigInSystemGutter)
+        settings_changed = settings_changed or rv
+      end
+
+      if reaper.ImGui_CollapsingHeader(ctx, "Fretboard", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+        if cfg.fretboardMode == "next_notes" then
+          reaper.ImGui_SetNextItemWidth(ctx, 140)
+          rv, cfg.fretboardNextCount = edit_int(ctx, "Next notes", cfg.fretboardNextCount, 0, 128)
+          settings_changed = settings_changed or rv
+        elseif cfg.fretboardMode == "next_bars" then
+          reaper.ImGui_SetNextItemWidth(ctx, 140)
+          rv, cfg.fretboardNextBars = edit_int(ctx, "Next bars", cfg.fretboardNextBars, 0, 32)
+          settings_changed = settings_changed or rv
+        end
+
+        if cfg.fretboardMode == "next_notes" or cfg.fretboardMode == "next_bars" then
+          local style_labels = "Outline only\0Outline + shade\0Outline + ramp\0"
+          local style_values = { "outline", "outline_shade", "outline_ramp" }
+          local style_index = 0
+          for i, style in ipairs(style_values) do
+            if style == cfg.fretboardNextStyle then
+              style_index = i - 1
+              break
+            end
+          end
+          reaper.ImGui_SetNextItemWidth(ctx, 180)
+          rv, style_index = reaper.ImGui_Combo(ctx, "Next notes style", style_index, style_labels)
+          if rv then
+            cfg.fretboardNextStyle = style_values[style_index + 1] or "outline"
+            settings_changed = true
+          end
+        end
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardFrets = edit_int(ctx, "Fret count", cfg.fretboardFrets, 1, 36)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardNoteRoundness = edit_float(ctx, "Note roundness", cfg.fretboardNoteRoundness, 0, 1)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardNoteSize = edit_float(ctx, "Note size", cfg.fretboardNoteSize, 0.3, 2.5)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardDotSize = edit_float(ctx, "Dot size", cfg.fretboardDotSize, 0.2, 3.0)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardFretThickness = edit_float(ctx, "Fret thickness", cfg.fretboardFretThickness, 0.5, 6.0)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_SetNextItemWidth(ctx, 140)
+        rv, cfg.fretboardStringThickness = edit_float(ctx, "String thickness", cfg.fretboardStringThickness, 0.5, 6.0)
+        settings_changed = settings_changed or rv
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Text(ctx, "Fretboard colors")
+        draw_color_swatch(ctx, cfg.colors.fretboardBg, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Fretboard bg", "fretboardBg", cfg.colors.fretboardBg, true) or settings_changed
+
+        draw_color_swatch(ctx, cfg.colors.fretboardStrings, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Fretboard strings", "fretboardStrings", cfg.colors.fretboardStrings, true) or settings_changed
+
+        draw_color_swatch(ctx, cfg.colors.fretboardFrets, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Fretboard frets/dots", "fretboardFrets", cfg.colors.fretboardFrets, true) or settings_changed
+
+        draw_color_swatch(ctx, cfg.colors.fretboardCurrent, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Fretboard current note", "fretboardCurrent", cfg.colors.fretboardCurrent, true) or settings_changed
+
+        draw_color_swatch(ctx, cfg.colors.fretboardNext, 14)
+        reaper.ImGui_SameLine(ctx)
+        settings_changed = edit_color_hex(ctx, "Fretboard next notes", "fretboardNext", cfg.colors.fretboardNext, true) or settings_changed
       end
 
       if reaper.ImGui_CollapsingHeader(ctx, "Playback", reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-        reaper.ImGui_SetNextItemWidth(ctx, 120)
-        rv, cfg.prevBars = edit_int(ctx, "Prev bars", cfg.prevBars, 0, 64)
-        settings_changed = settings_changed or rv
-        reaper.ImGui_SetNextItemWidth(ctx, 120)
-        rv, cfg.nextBars = edit_int(ctx, "Next bars", cfg.nextBars, 0, 64)
-        settings_changed = settings_changed or rv
-
         rv, cfg.followPlay = reaper.ImGui_Checkbox(ctx, "Follow play cursor", cfg.followPlay)
         settings_changed = settings_changed or rv
         rv, cfg.followEditWhenStopped = reaper.ImGui_Checkbox(ctx, "Follow edit cursor", cfg.followEditWhenStopped)
         settings_changed = settings_changed or rv
-
-        local update_modes = { "bar", "step", "screen", "continuous" }
-        local update_labels = "Every bar\0Every N bars\0Bars on screen width\0Continuous\0"
-        local mode_index = 0
-        for i, name in ipairs(update_modes) do
-          if name == cfg.updateMode then
-            mode_index = i - 1
-            break
-          end
-        end
-
-        reaper.ImGui_SetNextItemWidth(ctx, 200)
-        rv, mode_index = reaper.ImGui_Combo(ctx, "Update mode", mode_index, update_labels)
-        if rv then
-          cfg.updateMode = update_modes[mode_index + 1] or "bar"
-          settings_changed = true
-        end
 
         if cfg.updateMode == "step" then
           reaper.ImGui_SetNextItemWidth(ctx, 120)
@@ -849,14 +1270,30 @@ local function draw_ui()
         if state.takeSource then
           reaper.ImGui_Text(ctx, string.format("Source: %s", state.takeSource))
         end
+
+        reaper.ImGui_Separator(ctx)
+        if reaper.ImGui_Button(ctx, "Reset all settings") then
+          reaper.ImGui_OpenPopup(ctx, "Reset settings")
+        end
+        if reaper.ImGui_BeginPopupModal(ctx, "Reset settings", true, 0) then
+          reaper.ImGui_Text(ctx, "Reset all settings to defaults?")
+          reaper.ImGui_Text(ctx, "This cannot be undone.")
+          if reaper.ImGui_Button(ctx, "Reset now") then
+            reset_config_to_defaults()
+            settings_changed = false
+            settings_reset = true
+            reaper.ImGui_CloseCurrentPopup(ctx)
+          end
+          reaper.ImGui_SameLine(ctx)
+          if reaper.ImGui_Button(ctx, "Cancel") then
+            reaper.ImGui_CloseCurrentPopup(ctx)
+          end
+          reaper.ImGui_EndPopup(ctx)
+        end
       end
 
-      if settings_changed then
-        clamp_config(cfg)
-        config_mod.save(cfg, "luaTab")
-        util.log_init(script_dir, cfg.logEnabled, cfg.logVerbose, cfg.logPath)
-        util.log("settings changed", "info")
-        rebuild_data(get_cursor_time())
+      if settings_changed and not settings_reset then
+        apply_settings_change()
       end
 
       if reaper.ImGui_Button(ctx, "Close") then
@@ -865,14 +1302,6 @@ local function draw_ui()
 
       reaper.ImGui_EndPopup(ctx)
     end
-
-    if state.statusMessage then
-      reaper.ImGui_TextWrapped(ctx, state.statusMessage)
-    elseif state.lastBarIdx ~= nil then
-      reaper.ImGui_Text(ctx, string.format("Bar %d", state.lastBarIdx + 1))
-    end
-
-    reaper.ImGui_Separator(ctx)
 
     local avail_x, _ = reaper.ImGui_GetContentRegionAvail(ctx)
     local bars_per_system = layout.calc_bars_per_system(cfg, avail_x)
@@ -897,6 +1326,116 @@ local function draw_ui()
       handle_bar_click(ctx, state.systems, cfg)
     end
 
+    draw_fretboard_popup(t, current_bar)
+
+    do
+      local has_overlay = reaper.ImGui_GetWindowPos and reaper.ImGui_GetWindowSize
+      if has_overlay then
+        local overlay_list = draw_list
+        if reaper.ImGui_GetForegroundDrawList then
+          local ok_fg, fg = pcall(reaper.ImGui_GetForegroundDrawList, ctx)
+          if ok_fg and fg then
+            overlay_list = fg
+          else
+            local ok_fg2, fg2 = pcall(reaper.ImGui_GetForegroundDrawList)
+            if ok_fg2 and fg2 then
+              overlay_list = fg2
+            end
+          end
+        end
+        local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
+        local win_w, win_h = reaper.ImGui_GetWindowSize(ctx)
+        local content_x0 = win_x
+        local content_y0 = win_y
+        local content_x1 = win_x + win_w
+        local content_y1 = win_y + win_h
+        if reaper.ImGui_GetWindowContentRegionMin and reaper.ImGui_GetWindowContentRegionMax then
+          local min_x, min_y = reaper.ImGui_GetWindowContentRegionMin(ctx)
+          local max_x, max_y = reaper.ImGui_GetWindowContentRegionMax(ctx)
+          content_x0 = win_x + min_x
+          content_y0 = win_y + min_y
+          content_x1 = win_x + max_x
+          content_y1 = win_y + max_y
+        end
+
+        local frame_h = reaper.ImGui_GetFrameHeight and reaper.ImGui_GetFrameHeight(ctx) or 22
+        local button_size = frame_h * 2 + 6
+        local gear_pad = 10
+        local gear_offset_y = 20
+        local gear_x = util.clamp(content_x1 - button_size - gear_pad, content_x0, math.max(content_x0, content_x1 - button_size))
+        local gear_y = util.clamp(content_y0 + gear_pad + gear_offset_y, content_y0, math.max(content_y0, content_y1 - button_size))
+        local restore_x, restore_y = reaper.ImGui_GetCursorScreenPos(ctx)
+        if reaper.ImGui_SetCursorScreenPos then
+          reaper.ImGui_SetCursorScreenPos(ctx, gear_x, gear_y)
+          local clicked = false
+          if reaper.ImGui_InvisibleButton then
+            clicked = reaper.ImGui_InvisibleButton(ctx, "##SettingsGear", button_size, button_size)
+          elseif reaper.ImGui_Button then
+            clicked = reaper.ImGui_Button(ctx, "", button_size, button_size)
+          end
+
+          local hovered = reaper.ImGui_IsItemHovered and reaper.ImGui_IsItemHovered(ctx) or false
+          local active = reaper.ImGui_IsItemActive and reaper.ImGui_IsItemActive(ctx) or false
+          if clicked then
+            state.settingsOpen = true
+          end
+
+          local base = (cfg.colors and cfg.colors.uiControlBg) or { 0.2, 0.2, 0.2, 1.0 }
+          local hover = lighten_color(base, 0.12)
+          local active_col = lighten_color(base, 0.18)
+          local use_col = base
+          if active then
+            use_col = active_col
+          elseif hovered then
+            use_col = hover
+          end
+          local bg_col = util.color_u32(use_col[1], use_col[2], use_col[3], 1.0)
+          local text = (cfg.colors and cfg.colors.uiText) or { 1, 1, 1, 1 }
+          local text_col = util.color_u32(text[1], text[2], text[3], text[4])
+          local glyph = "⚙"
+          local text_w, text_h = 0, 0
+          if reaper.ImGui_CalcTextSize then
+            text_w, text_h = reaper.ImGui_CalcTextSize(ctx, glyph)
+          else
+            text_w, text_h = 12, 12
+          end
+          local text_x = gear_x + (button_size - text_w) * 0.5
+          local text_y = gear_y + (button_size - text_h) * 0.5
+
+          reaper.ImGui_DrawList_AddRectFilled(overlay_list, gear_x, gear_y, gear_x + button_size, gear_y + button_size, bg_col, 4)
+          reaper.ImGui_DrawList_AddText(overlay_list, text_x, text_y, text_col, glyph)
+          reaper.ImGui_SetCursorScreenPos(ctx, restore_x, restore_y)
+          if reaper.ImGui_Dummy then
+            reaper.ImGui_Dummy(ctx, 0, 0)
+          end
+        end
+
+        local status_text = nil
+        if state.statusMessage then
+          status_text = state.statusMessage
+        elseif state.lastBarIdx ~= nil then
+          status_text = string.format("Bar %d", state.lastBarIdx + 1)
+        end
+
+        if status_text then
+          local pad_x = 8
+          local pad_y = 4
+          local text_size = reaper.ImGui_GetFontSize(ctx) or 14
+          local bar_h = text_size + pad_y * 2
+          local bar_y0 = math.max(content_y0, content_y1 - bar_h)
+          local bar_y1 = bar_y0 + bar_h
+          local bg = (cfg.colors and cfg.colors.uiControlBg) or (cfg.colors and cfg.colors.background) or { 0, 0, 0, 0.85 }
+          local bg_a = (bg[4] or 1.0) * 0.92
+          local bg_col = util.color_u32(bg[1] or 0, bg[2] or 0, bg[3] or 0, bg_a)
+          local text = (cfg.colors and cfg.colors.uiText) or { 1, 1, 1, 1 }
+          local text_col = util.color_u32(text[1] or 1, text[2] or 1, text[3] or 1, text[4] or 1)
+
+          reaper.ImGui_DrawList_AddRectFilled(overlay_list, content_x0, bar_y0, content_x1, bar_y1, bg_col)
+          reaper.ImGui_DrawList_AddText(overlay_list, content_x0 + pad_x, bar_y0 + pad_y, text_col, status_text)
+        end
+      end
+    end
+
     if reaper.ImGui_SetNextFrameWantCaptureKeyboard then
       local wants_keyboard = false
       if reaper.ImGui_IsAnyItemActive and reaper.ImGui_IsAnyItemActive(ctx) then
@@ -910,7 +1449,9 @@ local function draw_ui()
     if reaper.ImGui_IsKeyPressed and reaper.ImGui_Key_Space then
       local window_focused = true
       if reaper.ImGui_IsWindowFocused and reaper.ImGui_FocusedFlags_RootAndChildWindows then
-        window_focused = reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows())
+        window_focused = reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows()) or state.fretboardFocused
+      else
+        window_focused = window_focused or state.fretboardFocused
       end
       if window_focused then
         local wants_keyboard = false
@@ -929,8 +1470,8 @@ local function draw_ui()
   if visible then
     reaper.ImGui_End(ctx)
   end
-  if pushed_bg and reaper.ImGui_PopStyleColor then
-    reaper.ImGui_PopStyleColor(ctx)
+  if (pushed_bg or pushed_text or pushed_popup or pushed_controls or pushed_buttons) and reaper.ImGui_PopStyleColor then
+    reaper.ImGui_PopStyleColor(ctx, (pushed_bg and 1 or 0) + (pushed_text and 1 or 0) + (pushed_popup and 1 or 0) + (pushed_controls and 3 or 0) + (pushed_buttons and 3 or 0))
   end
 
   if open then

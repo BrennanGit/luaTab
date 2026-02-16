@@ -54,6 +54,17 @@ local function draw_time_sig(draw_list, ctx, x, y, num, den, color, font_size, s
   draw_text_ex(draw_list, ctx, x + bold_offset, y + line_height, color, den_text, sized_font)
 end
 
+local function time_sig_y(staff, font_size, scale)
+  local scale_val = scale or 1.4
+  local total_h = (font_size * scale_val) * 2
+  if not staff or not staff.h then
+    return staff and staff.y or 0
+  end
+  local y = staff.y + (staff.h - total_h) * 0.5
+  y = y - (total_h * 0.08)
+  return math.max(staff.y, y)
+end
+
 local function add_boundary_time(boundaries, t)
   if t == nil then
     return
@@ -87,6 +98,210 @@ local function color_from_cfg(config, key, fallback)
     return fallback
   end
   return util.color_u32(color[1], color[2], color[3], color[4])
+end
+
+local function color_table_from_cfg(config, key, fallback)
+  if not config or not config.colors then
+    return fallback
+  end
+  local color = config.colors[key]
+  if not color then
+    return fallback
+  end
+  return color
+end
+
+local function color_with_alpha(color, alpha)
+  local a = util.clamp((color[4] or 1) * alpha, 0, 1)
+  return util.color_u32(color[1], color[2], color[3], a)
+end
+
+local function build_fret_positions(count, length)
+  local positions = { [0] = 0 }
+  local denom = 1 - (2 ^ (-count / 12))
+  local scale = (denom > 0) and (length / denom) or length
+  for i = 1, count do
+    positions[i] = scale - (scale / (2 ^ (i / 12)))
+  end
+  return positions
+end
+
+local function fret_center(positions, fret, length)
+  local start = positions[fret] or length
+  local finish = positions[fret + 1] or length
+  return (start + finish) * 0.5
+end
+
+local function draw_fretboard_note(draw_list, x, y, size, fill_color, outline_color, roundness, outline_thickness)
+  local half = size * 0.5
+  local x1 = x - half
+  local y1 = y - half
+  local x2 = x + half
+  local y2 = y + half
+  if fill_color then
+    reaper.ImGui_DrawList_AddRectFilled(draw_list, x1, y1, x2, y2, fill_color, roundness)
+  end
+  if outline_color then
+    reaper.ImGui_DrawList_AddRect(draw_list, x1, y1, x2, y2, outline_color, roundness, 0, outline_thickness or 1.2)
+  end
+end
+
+local function draw_fretboard_dot(draw_list, x, y, radius, color)
+  if reaper.ImGui_DrawList_AddCircleFilled then
+    reaper.ImGui_DrawList_AddCircleFilled(draw_list, x, y, radius, color)
+  else
+    reaper.ImGui_DrawList_AddRectFilled(draw_list, x - radius, y - radius, x + radius, y + radius, color, radius)
+  end
+end
+
+function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next_notes, next_style)
+  if not rect or rect.w <= 0 or rect.h <= 0 then
+    return
+  end
+
+  local padding = 10
+  local x0 = rect.x + padding
+  local y0 = rect.y + padding
+  local x1 = rect.x + rect.w - padding
+  local y1 = rect.y + rect.h - padding
+  if x1 <= x0 or y1 <= y0 then
+    return
+  end
+
+  local col_bg = color_table_from_cfg(config, "fretboardBg", { 0.06, 0.06, 0.06, 1.0 })
+  local col_strings = color_table_from_cfg(config, "fretboardStrings", { 0.55, 0.55, 0.55, 1.0 })
+  local col_frets = color_table_from_cfg(config, "fretboardFrets", { 0.35, 0.35, 0.35, 1.0 })
+  local col_current = color_table_from_cfg(config, "fretboardCurrent", { 0.2, 0.8, 0.3, 1.0 })
+  local col_next = color_table_from_cfg(config, "fretboardNext", { 0.9, 0.7, 0.2, 1.0 })
+
+  reaper.ImGui_DrawList_AddRectFilled(draw_list, rect.x, rect.y, rect.x + rect.w, rect.y + rect.h, color_with_alpha(col_bg, 1.0))
+
+  local string_count = math.max(1, #config.tuning)
+  local string_pad = math.min(12, (y1 - y0) * 0.12)
+  local y0_strings = y0 + string_pad
+  local y1_strings = y1 - string_pad
+  if y1_strings <= y0_strings then
+    y0_strings = y0
+    y1_strings = y1
+  end
+  local spacing = (string_count > 1) and ((y1_strings - y0_strings) / (string_count - 1)) or 0
+  local string_thickness = util.clamp(config.fretboardStringThickness or 1.0, 0.5, 6.0)
+  local fret_thickness = util.clamp(config.fretboardFretThickness or 1.0, 0.5, 6.0)
+  local boundary_pad = math.min(string_pad, math.max(2.0, spacing * 0.5))
+  local y0_frets = util.clamp(y0_strings - boundary_pad, y0, y0_strings)
+  local y1_frets = util.clamp(y1_strings + boundary_pad, y1_strings, y1)
+
+  if y0_frets < y0_strings then
+    reaper.ImGui_DrawList_AddLine(draw_list, x0, y0_frets, x1, y0_frets, color_with_alpha(col_strings, 0.7), string_thickness)
+  end
+  if y1_frets > y1_strings then
+    reaper.ImGui_DrawList_AddLine(draw_list, x0, y1_frets, x1, y1_frets, color_with_alpha(col_strings, 0.7), string_thickness)
+  end
+
+  for s = 1, string_count do
+    local y = string_y(y1_strings, s, spacing)
+    reaper.ImGui_DrawList_AddLine(draw_list, x0, y, x1, y, color_with_alpha(col_strings, 1.0), string_thickness)
+  end
+
+  local fret_count = math.max(1, config.fretboardFrets or 12)
+  local length = x1 - x0
+  local positions = build_fret_positions(fret_count, length)
+
+  local min_gap = length
+  for i = 1, fret_count do
+    local gap = positions[i] - positions[i - 1]
+    if gap > 0 then
+      min_gap = math.min(min_gap, gap)
+    end
+  end
+
+  local nut_gap = 0
+  if fret_count >= 1 then
+    nut_gap = math.min(positions[1] * 0.6, math.max(4.0, fret_thickness * 2.4))
+  end
+  reaper.ImGui_DrawList_AddLine(draw_list, x0, y0_frets, x0, y1_frets, color_with_alpha(col_frets, 1.0), fret_thickness * 1.1)
+  if nut_gap > 0 then
+    reaper.ImGui_DrawList_AddLine(draw_list, x0 + nut_gap, y0_frets, x0 + nut_gap, y1_frets, color_with_alpha(col_frets, 1.0), fret_thickness * 0.9)
+  end
+
+  for i = 1, fret_count do
+    local x = x0 + (positions[i] or 0)
+    reaper.ImGui_DrawList_AddLine(draw_list, x, y0_frets, x, y1_frets, color_with_alpha(col_frets, 1.0), fret_thickness)
+  end
+  reaper.ImGui_DrawList_AddLine(draw_list, x1, y0_frets, x1, y1_frets, color_with_alpha(col_frets, 1.0), fret_thickness)
+
+  local dot_frets = { 3, 5, 7, 12, 15, 17, 19 }
+  local dot_scale = util.clamp(config.fretboardDotSize or 1.0, 0.2, 3.0)
+  local dot_radius = math.max(2, spacing * 0.18) * dot_scale
+  local dot_col = color_with_alpha(col_frets, 0.6)
+  local mid_y = (y0_strings + y1_strings) * 0.5
+  for _, fret in ipairs(dot_frets) do
+    if fret <= fret_count and fret > 0 then
+      local start = positions[fret - 1] or 0
+      local finish = positions[fret] or length
+      local x = x0 + (start + finish) * 0.5
+      if fret == 12 and string_count > 1 then
+        local offset = math.max(spacing * 0.6, dot_radius * 1.6)
+        draw_fretboard_dot(draw_list, x, mid_y - offset, dot_radius, dot_col)
+        draw_fretboard_dot(draw_list, x, mid_y + offset, dot_radius, dot_col)
+      else
+        draw_fretboard_dot(draw_list, x, mid_y, dot_radius, dot_col)
+      end
+    end
+  end
+
+  local note_scale = util.clamp(config.fretboardNoteSize or 1.0, 0.3, 2.5)
+  local note_size = util.clamp(math.min(spacing * 0.8, min_gap * 0.7) * note_scale, 3, 40)
+  local roundness = util.clamp((config.fretboardNoteRoundness or 0.3), 0, 1) * note_size * 0.5
+
+  local function note_center(assign)
+    if not assign or assign.fret == nil then
+      return nil
+    end
+    if assign.fret < 0 or assign.fret > fret_count then
+      return nil
+    end
+    local x
+    if assign.fret == 0 then
+      x = x0 + (nut_gap * 0.5)
+    else
+      local start = positions[assign.fret - 1] or 0
+      local finish = positions[assign.fret] or length
+      x = x0 + (start + finish) * 0.5
+    end
+    local y = string_y(y1_strings, assign.string, spacing)
+    return x, y
+  end
+
+  local count_next = #next_notes
+  for i, note in ipairs(next_notes) do
+    local x, y = note_center(note)
+    if x and y then
+      local fill = nil
+      local outline = color_with_alpha(col_next, 1.0)
+      if next_style == "outline_shade" then
+        fill = color_with_alpha(col_next, 0.3)
+      elseif next_style == "outline_ramp" then
+        local alpha
+        if count_next <= 1 then
+          alpha = 0.75
+        else
+          local t = (count_next - i) / (count_next - 1)
+          alpha = 0.2 + t * 0.55
+        end
+        fill = color_with_alpha(col_next, alpha)
+      end
+      draw_fretboard_note(draw_list, x, y, note_size, fill, outline, roundness, 1.2)
+    end
+  end
+
+  local col_current_u32 = color_with_alpha(col_current, 1.0)
+  for _, note in ipairs(current_notes) do
+    local x, y = note_center(note)
+    if x and y then
+      draw_fretboard_note(draw_list, x, y, note_size, col_current_u32, col_current_u32, roundness, 1.4)
+    end
+  end
 end
 
 
@@ -153,9 +368,11 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
           reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_layout.barLeft, staff.y, bar_right, staff.bottom, col_marker)
         end
         if k == 1 and config.showFirstTimeSigInSystemGutter then
-          draw_time_sig(draw_list, ctx, system.x0 + 6, staff.y, bar.num, bar.den, col_text, font_size, time_sig_scale)
+          local ts_y = time_sig_y(staff, font_size, time_sig_scale)
+          draw_time_sig(draw_list, ctx, system.x0 + 6, ts_y, bar.num, bar.den, col_text, font_size, time_sig_scale)
         elseif bar.showTimeSigHere then
-          draw_time_sig(draw_list, ctx, bar_layout.prefix.x + 2, staff.y, bar.num, bar.den, col_text, font_size, time_sig_scale)
+          local ts_y = time_sig_y(staff, font_size, time_sig_scale)
+          draw_time_sig(draw_list, ctx, bar_layout.prefix.x + 2, ts_y, bar.num, bar.den, col_text, font_size, time_sig_scale)
         end
       end
 

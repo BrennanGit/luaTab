@@ -39,7 +39,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - **lib/midi.lua** — active take selection, note extraction, event grouping
 - **lib/source.lua** — take resolution from selected track or MIDI editor
 - **lib/frets.lua** — candidate generation, solver, reduction
-- **lib/render.lua** — draw strings, barlines, notes, time signatures
+- **lib/render.lua** — draw strings, barlines, notes, time signatures, and fretboard popup
 - **lib/util.lua** — helpers
 
 ### Data Flow (Narrative)
@@ -115,4 +115,4 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ## 8) Change Log (Optional)
 
-- {YYYY-MM-DD} — {High-level architecture change} — {linked task #NNN}
+- 2026-02-15 — Added optional fretboard popup rendering — #014
