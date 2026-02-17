@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-17 00:18 UTC
+- Last updated: 2026-02-17 01:37 UTC
 
 ---
 
@@ -34,6 +34,21 @@ Format:
   Functions: f1(), f2()
   Related: #MMM
 -->
+
+- [done] 040-tracking-consolidation-and-iteration-policy — Tracking consolidation + iteration policy (2026-02-17) — Owner: agent
+  Type: docs
+  Stability: experimental
+  Files: .tracking/meta.md, .tracking/039-continuous-mode-performance.md, .github/instructions/plan.instructions.md, .tracking/044-tracking-consolidation-and-iteration-policy.md, .tracking/040-continuous-readability-and-hotpath-audit.md (deleted), .tracking/041-continuous-no-bar-snap.md (deleted), .tracking/042-continuous-wrap-artifact-fix.md (deleted), .tracking/043-continuous-render-artifact-pass.md (deleted)
+  Functions: n/a
+  Related: #039, #040, #041, #042, #043
+
+- [done] 039-continuous-mode-performance — Continuous mode performance (2026-02-17) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: luaTab.lua, lib/render.lua, .tracking/039-continuous-mode-performance.md, .tracking/meta.md
+  Functions: rebuild_data(), draw_ui(), handle_bar_click(), compute_continuous_draw_offset(), collect_fretboard_current_notes(), render.draw_systems(), draw_text_with_bg()
+  Related: #038, #013
+
 
 ---
 

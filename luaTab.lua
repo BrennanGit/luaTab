@@ -189,6 +189,10 @@ local state = {
     returnFocus = false,
   },
   fretboardLastMode = "current",
+  layoutEpoch = 0,
+  systemsLayoutKey = nil,
+  continuousOffsetPx = 0,
+  continuousOffsetTime = 0,
 }
 
 local default_tuning_presets = {
@@ -1449,6 +1453,8 @@ end
 
 local function rebuild_data(t)
   util.log_throttle("rebuild", 1.0, string.format("rebuild_data t=%.3f", t), "debug")
+  state.layoutEpoch = (state.layoutEpoch or 0) + 1
+  state.systemsLayoutKey = nil
   local bars, current = timeline.build_bars(t, cfg.prevBars, cfg.nextBars, cfg.showFirstTimeSigInSystemGutter)
 
   if #bars == 0 then
@@ -1545,11 +1551,22 @@ local function rebuild_data(t)
     local bar = bars[bar_idx]
     if bar and event.t >= bar.t0 and event.t < bar.t1 then
       local result = frets.assign_event(event, cfg, assignment_state)
-      event.assignments = result.assignments
+      local assignments = result.assignments or {}
+      if #assignments > 1 then
+        table.sort(assignments, function(a, b)
+          return a.string < b.string
+        end)
+      end
+      event.assignments = assignments
       event.dropped = result.dropped
+      local assignment_by_pitch = {}
+      for _, assign in ipairs(assignments) do
+        assignment_by_pitch[assign.pitch] = assign
+      end
+      event.assignmentByPitch = assignment_by_pitch
       events_by_bar[bar.idx] = events_by_bar[bar.idx] or {}
       events_by_bar[bar.idx][#events_by_bar[bar.idx] + 1] = event
-      frets.advance_state(result.assignments, assignment_state)
+      frets.advance_state(assignments, assignment_state)
     end
   end
 
@@ -1592,7 +1609,14 @@ local function compute_sweep_offset_px(t, config)
   return frac * bar_total
 end
 
-local function handle_bar_click(ctx, systems, config)
+local function compute_continuous_draw_offset(t, config)
+  local target = -compute_sweep_offset_px(t, config)
+  state.continuousOffsetPx = target
+  state.continuousOffsetTime = now_time()
+  return math.floor(target + 0.5)
+end
+
+local function handle_bar_click(ctx, systems, config, draw_offset_x)
   if not (reaper.ImGui_IsMouseClicked and reaper.ImGui_GetMousePos and reaper.ImGui_IsWindowHovered) then
     return
   end
@@ -1609,6 +1633,7 @@ local function handle_bar_click(ctx, systems, config)
 
   local mx, my = reaper.ImGui_GetMousePos(ctx)
   local bar_w = config.barPrefixPx + config.barContentPx
+  local x_offset = draw_offset_x or 0
   for _, system in ipairs(systems) do
     local y0 = system.y
     local y1 = system.staffRect.bottom + config.staffPaddingBottomPx
@@ -1616,7 +1641,7 @@ local function handle_bar_click(ctx, systems, config)
       for k, bar_layout in ipairs(system.barLayouts) do
         local bar = system.bars[k]
         if bar then
-          local x0 = bar_layout.barLeft
+          local x0 = bar_layout.barLeft + x_offset
           local x1 = x0 + bar_w
           if mx >= x0 and mx <= x1 then
             reaper.SetEditCurPos(bar.t0, true, true)
@@ -1759,17 +1784,13 @@ local function collect_fretboard_current_notes(t)
   for _, bar in ipairs(state.bars) do
     local events = state.eventsByBar[bar.idx] or {}
     for _, event in ipairs(events) do
-      local assign_by_pitch = {}
-      for _, assign in ipairs(event.assignments or {}) do
-        assign_by_pitch[assign.pitch] = assign
-      end
       for _, note in ipairs(event.notes or {}) do
         local end_t = note.tEnd - pre_note_off_sec
         if end_t <= note.tStart then
           end_t = note.tStart + 0.0001
         end
         if note.tStart <= t and t < end_t then
-          local assign = assign_by_pitch[note.pitch]
+          local assign = event.assignmentByPitch and event.assignmentByPitch[note.pitch] or nil
           if assign then
             local key = tostring(assign.string) .. ":" .. tostring(assign.fret)
             if not current_map[key] then
@@ -2918,14 +2939,28 @@ local function draw_ui()
       state.lastUpdateKey = update_key
     end
 
+    local draw_offset_x = 0
     if cfg.updateMode == "continuous" then
-      origin_x = origin_x - compute_sweep_offset_px(t, cfg)
+      draw_offset_x = compute_continuous_draw_offset(t, cfg)
+    else
+      state.continuousOffsetPx = 0
+      state.continuousOffsetTime = now_time()
     end
 
     if state.hasMidiTake then
-      state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
-      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds, t)
-      handle_bar_click(ctx, state.systems, cfg)
+      local layout_key = string.format(
+        "%d|%.3f|%.3f|%.3f",
+        state.layoutEpoch or 0,
+        avail_x,
+        origin_x,
+        origin_y
+      )
+      if state.systemsLayoutKey ~= layout_key then
+        state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
+        state.systemsLayoutKey = layout_key
+      end
+      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds, t, draw_offset_x)
+      handle_bar_click(ctx, state.systems, cfg, draw_offset_x)
     end
 
     do

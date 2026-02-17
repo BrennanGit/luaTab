@@ -36,6 +36,8 @@ end
 local function draw_text_with_bg(draw_list, ctx, x, y, text, color, bg_color, padding, font_size)
   local w, h = calc_text_size(ctx, text, font_size)
   local px = padding or 2
+  x = math.floor(x + 0.5)
+  y = math.floor(y + 0.5)
   reaper.ImGui_DrawList_AddRectFilled(draw_list, x - px, y - px, x + w + px, y + h + px, bg_color)
   draw_text_ex(draw_list, ctx, x, y, color, text, font_size)
 end
@@ -322,7 +324,7 @@ function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next
 end
 
 
-function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds, play_t)
+function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds, play_t, draw_offset_x)
   local col_strings = color_from_cfg(config, "strings", util.color_u32(0.7, 0.7, 0.7, 1))
   local col_barlines = color_from_cfg(config, "barlines", util.color_u32(0.4, 0.4, 0.4, 1))
   local col_item = color_from_cfg(config, "itemBoundary", util.color_u32(0.7, 0.7, 0.7, 1))
@@ -336,6 +338,7 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
   local item_thickness = config.itemBoundaryThickness or 2.5
   local bar_body = config.barPrefixPx + config.barContentPx
   local pre_note_off_sec = util.clamp((config.fretboardPreNoteOffMs or 0) / 1000.0, 0, 1)
+  local x_offset = draw_offset_x or 0
 
   font_size = font_size or 12
   local fret_scale = (config.fonts and config.fonts.fretScale) or 1.0
@@ -344,8 +347,8 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
 
   for _, system in ipairs(systems) do
     local staff = system.staffRect
-    local left = system.x0
-    local right = system.x0 + staff.w
+    local left = system.x0 + x_offset
+    local right = system.x0 + staff.w + x_offset
 
     for s = 1, #config.tuning do
       local y = string_y(staff.bottom, s, config.stringSpacingPx)
@@ -365,7 +368,7 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
     end
 
     for k, bar_layout in ipairs(system.barLayouts) do
-      local x = bar_layout.barlineX
+      local x = bar_layout.barlineX + x_offset
       reaper.ImGui_DrawList_AddLine(draw_list, x, staff.y, x, staff.bottom, col_barlines, barline_thickness)
 
       local bar = system.bars[k]
@@ -379,27 +382,28 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
             end
             if in_range then
               local bx = boundary_x_for_bar(bar, bar_layout, boundary_t, config)
-              reaper.ImGui_DrawList_AddLine(draw_list, bx, staff.y, bx, staff.bottom, col_item, item_thickness)
+              reaper.ImGui_DrawList_AddLine(draw_list, bx + x_offset, staff.y, bx + x_offset, staff.bottom, col_item, item_thickness)
             end
           end
         end
         if current_bar_idx ~= nil and bar.idx == current_bar_idx then
-          local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx
-          reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_layout.barLeft, staff.y, bar_right, staff.bottom, col_marker)
+          local bar_left = bar_layout.barLeft + x_offset
+          local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx + x_offset
+          reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_left, staff.y, bar_right, staff.bottom, col_marker)
         end
         if k == 1 and config.showFirstTimeSigInSystemGutter then
           local ts_y = time_sig_y(staff, font_size, time_sig_scale)
-          draw_time_sig(draw_list, ctx, system.x0 + 6, ts_y, bar.num, bar.den, col_text, font_size, time_sig_scale)
+          draw_time_sig(draw_list, ctx, math.floor(system.x0 + 6 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, col_text, font_size, time_sig_scale)
         elseif bar.showTimeSigHere then
           local ts_y = time_sig_y(staff, font_size, time_sig_scale)
-          draw_time_sig(draw_list, ctx, bar_layout.prefix.x + 2, ts_y, bar.num, bar.den, col_text, font_size, time_sig_scale)
+          draw_time_sig(draw_list, ctx, math.floor(bar_layout.prefix.x + 2 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, col_text, font_size, time_sig_scale)
         end
       end
 
       local events = events_by_bar[bar.idx] or {}
       for _, event in ipairs(events) do
         local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
-        local x_pos = bar_layout.content.x + frac * bar_layout.content.w
+        local x_pos = math.floor(bar_layout.content.x + frac * bar_layout.content.w + x_offset + 0.5)
         local active_by_pitch = nil
         if config.tabHighlightCurrentNote and play_t then
           active_by_pitch = {}
@@ -411,16 +415,6 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
         end
 
         local assignments = event.assignments or {}
-        if #assignments > 1 then
-          local sorted = {}
-          for i = 1, #assignments do
-            sorted[i] = assignments[i]
-          end
-          table.sort(sorted, function(a, b)
-            return a.string < b.string
-          end)
-          assignments = sorted
-        end
 
         local sized_font = font_size * fret_scale
         for _, note in ipairs(assignments) do
@@ -440,13 +434,13 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
         for i, pitch in ipairs(event.dropped) do
           local y = staff.y - dropped_font * 0.8
           local offset = (i - 1) * 8
-          draw_text_ex(draw_list, ctx, bar_layout.prefix.x + offset, y, col_dropped, tostring(pitch), dropped_font)
+          draw_text_ex(draw_list, ctx, math.floor(bar_layout.prefix.x + offset + x_offset + 0.5), math.floor(y + 0.5), col_dropped, tostring(pitch), dropped_font)
         end
       end
     end
 
     local bar_count = #system.barLayouts
-    local end_x = system.x0 + system.gutterW + (bar_count * bar_body) + (math.max(0, bar_count - 1) * config.barGutterPx)
+    local end_x = system.x0 + system.gutterW + (bar_count * bar_body) + (math.max(0, bar_count - 1) * config.barGutterPx) + x_offset
     reaper.ImGui_DrawList_AddLine(draw_list, end_x, staff.y, end_x, staff.bottom, col_barlines, barline_thickness)
   end
 end
