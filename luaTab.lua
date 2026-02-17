@@ -312,6 +312,7 @@ local layout_value_keys = {
   "nextBars",
   "updateStep",
   "antidelayBeats",
+  "fretboardPreNoteOffMs",
 }
 
 local layout_string_keys = {
@@ -333,6 +334,7 @@ local function build_default_layout_preset()
     updateMode = config_mod.defaults.updateMode,
     updateStep = config_mod.defaults.updateStep,
     antidelayBeats = config_mod.defaults.antidelayBeats,
+    fretboardPreNoteOffMs = config_mod.defaults.fretboardPreNoteOffMs,
     panels = {
       main = { open = true, pos = { 100, 100 }, size = { 900, 360 } },
       settings = { open = false, pos = { 120, 120 }, size = { 560, 520 } },
@@ -1393,6 +1395,7 @@ local function clamp_config(cfg)
   cfg.nextBars = util.clamp(cfg.nextBars, 0, 64)
   cfg.updateStep = util.clamp(cfg.updateStep, 1, 64)
   cfg.antidelayBeats = util.clamp(cfg.antidelayBeats, 0, 64)
+  cfg.fretboardPreNoteOffMs = util.clamp(cfg.fretboardPreNoteOffMs or 50, 0, 1000)
   cfg.maxFret = util.clamp(cfg.maxFret, 1, 48)
   cfg.maxFrettedSpan = util.clamp(cfg.maxFrettedSpan, 0, 24)
   cfg.maxSimul = util.clamp(cfg.maxSimul, 1, #cfg.tuning)
@@ -1423,6 +1426,8 @@ local function clamp_config(cfg)
   if not fb_styles[cfg.fretboardNextStyle] then
     cfg.fretboardNextStyle = "outline"
   end
+  cfg.fretboardHighlightNextNote = cfg.fretboardHighlightNextNote == true
+  cfg.tabHighlightCurrentNote = cfg.tabHighlightCurrentNote == true
   if cfg.fonts then
     cfg.fonts.fretScale = util.clamp(cfg.fonts.fretScale or 1.0, 0.6, 2.5)
     cfg.fonts.timeSigScale = util.clamp(cfg.fonts.timeSigScale or 1.4, 0.6, 3.0)
@@ -1749,6 +1754,8 @@ local function collect_fretboard_current_notes(t)
     return current_notes, current_map
   end
 
+  local pre_note_off_sec = util.clamp((cfg.fretboardPreNoteOffMs or 0) / 1000.0, 0, 1)
+
   for _, bar in ipairs(state.bars) do
     local events = state.eventsByBar[bar.idx] or {}
     for _, event in ipairs(events) do
@@ -1757,7 +1764,11 @@ local function collect_fretboard_current_notes(t)
         assign_by_pitch[assign.pitch] = assign
       end
       for _, note in ipairs(event.notes or {}) do
-        if note.tStart <= t and t < note.tEnd then
+        local end_t = note.tEnd - pre_note_off_sec
+        if end_t <= note.tStart then
+          end_t = note.tStart + 0.0001
+        end
+        if note.tStart <= t and t < end_t then
           local assign = assign_by_pitch[note.pitch]
           if assign then
             local key = tostring(assign.string) .. ":" .. tostring(assign.fret)
@@ -1927,6 +1938,10 @@ local function draw_fretboard_panel(t, current_bar)
         cfg.fretboardNextStyle = style_values[style_index + 1] or "outline"
         header_changed = true
       end
+
+      reaper.ImGui_SameLine(ctx)
+      rv, cfg.fretboardHighlightNextNote = reaper.ImGui_Checkbox(ctx, "Highlight next note", cfg.fretboardHighlightNextNote)
+      header_changed = header_changed or rv
     end
 
     if header_changed then
@@ -1940,7 +1955,7 @@ local function draw_fretboard_panel(t, current_bar)
     if w > 10 and h > 10 then
       local current_notes, current_map = collect_fretboard_current_notes(t)
       local next_notes = collect_fretboard_next_notes(t, current_bar, current_map)
-      render.draw_fretboard(draw_list, ctx, { x = x, y = y, w = w, h = h }, cfg, current_notes, next_notes, cfg.fretboardNextStyle)
+      render.draw_fretboard(draw_list, ctx, { x = x, y = y, w = w, h = h }, cfg, current_notes, next_notes, cfg.fretboardNextStyle, cfg.fretboardHighlightNextNote)
       reaper.ImGui_Dummy(ctx, w, h)
     end
   end)
@@ -2157,6 +2172,9 @@ local function format_settings_export(cfg)
   lines[#lines + 1] = string.format("  updateMode = %s,", fmt(cfg.updateMode))
   lines[#lines + 1] = string.format("  updateStep = %s,", fmt(cfg.updateStep))
   lines[#lines + 1] = string.format("  antidelayBeats = %s,", fmt(cfg.antidelayBeats))
+  lines[#lines + 1] = string.format("  fretboardPreNoteOffMs = %s,", fmt(cfg.fretboardPreNoteOffMs))
+  lines[#lines + 1] = string.format("  tabHighlightCurrentNote = %s,", fmt(cfg.tabHighlightCurrentNote))
+  lines[#lines + 1] = string.format("  fretboardHighlightNextNote = %s,", fmt(cfg.fretboardHighlightNextNote))
   lines[#lines + 1] = string.format("  fretboardMode = %s,", fmt(cfg.fretboardMode))
   lines[#lines + 1] = string.format("  fretboardNextCount = %s,", fmt(cfg.fretboardNextCount))
   lines[#lines + 1] = string.format("  fretboardNextBars = %s,", fmt(cfg.fretboardNextBars))
@@ -2384,6 +2402,13 @@ local function draw_settings_panel()
 
       reaper.ImGui_SetNextItemWidth(ctx, 120)
       rv, cfg.antidelayBeats = edit_int(ctx, "Antidelay beats", cfg.antidelayBeats, 0, 64)
+      settings_changed = settings_changed or rv
+
+      reaper.ImGui_SetNextItemWidth(ctx, 200)
+      rv, cfg.fretboardPreNoteOffMs = edit_int(ctx, "Fretboard pre-note off (ms)", cfg.fretboardPreNoteOffMs, 0, 1000)
+      settings_changed = settings_changed or rv
+
+      rv, cfg.tabHighlightCurrentNote = reaper.ImGui_Checkbox(ctx, "Highlight current tab note", cfg.tabHighlightCurrentNote)
       settings_changed = settings_changed or rv
     end
 
@@ -2899,7 +2924,7 @@ local function draw_ui()
 
     if state.hasMidiTake then
       state.systems = layout.build_systems(state.bars, cfg, avail_x, origin_x, origin_y)
-      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds)
+      render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds, t)
       handle_bar_click(ctx, state.systems, cfg)
     end
 

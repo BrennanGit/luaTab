@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-16 15:41 UTC
+- Last updated: 2026-02-17 00:18 UTC
 
 ---
 
@@ -43,6 +43,13 @@ Format:
   Files: luaTab.lua, .tracking/037-user-presets-panel-fixes.md
   Functions: draw_user_presets_panel(), draw_preset_delete_modal()
   Related: #036
+
+- [done] 038-tracking-playback-highlights — Playback rhythm gap + note highlighting (2026-02-17) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/config.lua, lib/render.lua, planning/configuration.md, .tracking/038-tracking-playback-highlights.md
+  Functions: config.load(), config.save(), config.reset(), clamp_config(), collect_fretboard_current_notes(), draw_fretboard_panel(), draw_settings_panel(), render.draw_fretboard(), render.draw_systems()
+  Related: #015, #024
 
 - [done] 036-user-presets-panel — User presets panel (2026-02-16) — Owner: agent
   Type: feature

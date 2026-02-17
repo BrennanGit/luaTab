@@ -116,6 +116,18 @@ local function color_with_alpha(color, alpha)
   return util.color_u32(color[1], color[2], color[3], a)
 end
 
+local function note_is_active(note, t, pre_note_off_sec)
+  if not (note and note.tStart and note.tEnd and t) then
+    return false
+  end
+  local gap = util.clamp(pre_note_off_sec or 0, 0, 1)
+  local end_t = note.tEnd - gap
+  if end_t <= note.tStart then
+    end_t = note.tStart + 0.0001
+  end
+  return note.tStart <= t and t < end_t
+end
+
 local function build_fret_positions(count, length)
   local positions = { [0] = 0 }
   local denom = 1 - (2 ^ (-count / 12))
@@ -154,7 +166,7 @@ local function draw_fretboard_dot(draw_list, x, y, radius, color)
   end
 end
 
-function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next_notes, next_style)
+function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next_notes, next_style, highlight_next_note)
   if not rect or rect.w <= 0 or rect.h <= 0 then
     return
   end
@@ -279,17 +291,22 @@ function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next
     if x and y then
       local fill = nil
       local outline = color_with_alpha(col_next, 1.0)
-      if next_style == "outline_shade" then
-        fill = color_with_alpha(col_next, 0.3)
-      elseif next_style == "outline_ramp" then
-        local alpha
-        if count_next <= 1 then
-          alpha = 0.75
-        else
-          local t = (count_next - i) / (count_next - 1)
-          alpha = 0 + t * 0.75
+      if highlight_next_note and i == 1 then
+        fill = color_with_alpha(col_current, 0.5)
+        outline = color_with_alpha(col_current, 1.0)
+      else
+        if next_style == "outline_shade" then
+          fill = color_with_alpha(col_next, 0.3)
+        elseif next_style == "outline_ramp" then
+          local alpha
+          if count_next <= 1 then
+            alpha = 0.75
+          else
+            local t = (count_next - i) / (count_next - 1)
+            alpha = 0 + t * 0.75
+          end
+          fill = color_with_alpha(col_next, alpha)
         end
-        fill = color_with_alpha(col_next, alpha)
       end
       draw_fretboard_note(draw_list, x, y, note_size, fill, outline, roundness, 1.2)
     end
@@ -305,7 +322,7 @@ function render.draw_fretboard(draw_list, ctx, rect, config, current_notes, next
 end
 
 
-function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds)
+function render.draw_systems(draw_list, systems, config, events_by_bar, font_size, ctx, current_bar_idx, item_bounds, play_t)
   local col_strings = color_from_cfg(config, "strings", util.color_u32(0.7, 0.7, 0.7, 1))
   local col_barlines = color_from_cfg(config, "barlines", util.color_u32(0.4, 0.4, 0.4, 1))
   local col_item = color_from_cfg(config, "itemBoundary", util.color_u32(0.7, 0.7, 0.7, 1))
@@ -313,9 +330,12 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
   local col_dropped = color_from_cfg(config, "dropped", util.color_u32(1, 0.25, 0.25, 1))
   local col_marker = color_from_cfg(config, "marker", util.color_u32(1, 0.2, 0.2, 0.18))
   local col_note_bg = color_from_cfg(config, "noteBg", util.color_u32(0.05, 0.05, 0.05, 0.85))
+  local marker_tbl = color_table_from_cfg(config, "marker", { 1, 0.2, 0.2, 0.18 })
+  local col_note_active_bg = util.color_u32(marker_tbl[1], marker_tbl[2], marker_tbl[3], util.clamp((marker_tbl[4] or 0.18) * 2.2, 0.18, 0.9))
   local barline_thickness = config.barLineThickness or 1.0
   local item_thickness = config.itemBoundaryThickness or 2.5
   local bar_body = config.barPrefixPx + config.barContentPx
+  local pre_note_off_sec = util.clamp((config.fretboardPreNoteOffMs or 0) / 1000.0, 0, 1)
 
   font_size = font_size or 12
   local fret_scale = (config.fonts and config.fonts.fretScale) or 1.0
@@ -380,6 +400,15 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
       for _, event in ipairs(events) do
         local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
         local x_pos = bar_layout.content.x + frac * bar_layout.content.w
+        local active_by_pitch = nil
+        if config.tabHighlightCurrentNote and play_t then
+          active_by_pitch = {}
+          for _, note in ipairs(event.notes or {}) do
+            if note_is_active(note, play_t, pre_note_off_sec) then
+              active_by_pitch[note.pitch] = true
+            end
+          end
+        end
 
         local assignments = event.assignments or {}
         if #assignments > 1 then
@@ -400,7 +429,11 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
           local w, h = calc_text_size(ctx, text, sized_font)
           local text_x = x_pos - (w * 0.5)
           local text_y = y - (h * 0.5)
-          draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, col_note_bg, 2, sized_font)
+          local bg = col_note_bg
+          if active_by_pitch and active_by_pitch[note.pitch] then
+            bg = col_note_active_bg
+          end
+          draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, bg, 2, sized_font)
         end
 
         local dropped_font = font_size * dropped_scale

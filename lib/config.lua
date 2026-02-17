@@ -81,6 +81,9 @@ config.defaults = {
   updateMode = "bar",
   updateStep = 1,
   antidelayBeats = 0,
+  fretboardPreNoteOffMs = 50,
+  fretboardHighlightNextNote = false,
+  tabHighlightCurrentNote = false,
 
   fretboardMode = "hidden",
   fretboardNextCount = 6,
@@ -219,6 +222,9 @@ function config.load(section)
   cfg.updateMode = read_string(ns, "updateMode", cfg.updateMode)
   cfg.updateStep = read_number(ns, "updateStep", cfg.updateStep)
   cfg.antidelayBeats = read_number(ns, "antidelayBeats", cfg.antidelayBeats)
+  cfg.fretboardPreNoteOffMs = read_number(ns, "fretboardPreNoteOffMs", cfg.fretboardPreNoteOffMs)
+  cfg.fretboardHighlightNextNote = read_bool(ns, "fretboardHighlightNextNote", cfg.fretboardHighlightNextNote)
+  cfg.tabHighlightCurrentNote = read_bool(ns, "tabHighlightCurrentNote", cfg.tabHighlightCurrentNote)
 
   cfg.fretboardMode = read_string(ns, "fretboardMode", cfg.fretboardMode)
   cfg.fretboardNextCount = read_number(ns, "fretboardNextCount", cfg.fretboardNextCount)
@@ -314,6 +320,9 @@ function config.save(cfg, section)
   write_value(ns, "updateMode", cfg.updateMode)
   write_value(ns, "updateStep", cfg.updateStep)
   write_value(ns, "antidelayBeats", cfg.antidelayBeats)
+  write_value(ns, "fretboardPreNoteOffMs", cfg.fretboardPreNoteOffMs)
+  write_value(ns, "fretboardHighlightNextNote", cfg.fretboardHighlightNextNote)
+  write_value(ns, "tabHighlightCurrentNote", cfg.tabHighlightCurrentNote)
 
   write_value(ns, "fretboardMode", cfg.fretboardMode)
   write_value(ns, "fretboardNextCount", cfg.fretboardNextCount)
@@ -377,6 +386,9 @@ function config.reset(section)
     "updateMode",
     "updateStep",
     "antidelayBeats",
+    "fretboardPreNoteOffMs",
+    "fretboardHighlightNextNote",
+    "tabHighlightCurrentNote",
     "fretboardMode",
     "fretboardNextCount",
     "fretboardNextBars",

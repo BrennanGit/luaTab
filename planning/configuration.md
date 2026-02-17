@@ -56,6 +56,7 @@ Settings are shown in a popup grouped into:
 ### 2.1 Cursor follow
 - `followPlay` (bool): follow play cursor when playing
 - `followEditWhenStopped` (bool): follow edit cursor when not playing
+- `tabHighlightCurrentNote` (bool): highlight currently playing assigned note(s) on tab layout
 - `lockToBar` (bool, optional): update only when crossing a barline
 
 ### 2.2 Visible range
@@ -114,9 +115,11 @@ UI option (later):
 
 ### 2.10 Fretboard popup
 - `fretboardMode` (enum): hidden | current | next_notes | next_bars
+- `fretboardPreNoteOffMs` (int): pre-note off gap in milliseconds used for rhythm visibility (default 50)
 - `fretboardNextCount` (int): number of upcoming notes to show when mode = next_notes
 - `fretboardNextBars` (int): number of upcoming bars to show when mode = next_bars
 - `fretboardNextStyle` (enum): outline | outline_shade | outline_ramp
+- `fretboardHighlightNextNote` (bool): force-highlight only the next note using 50% of current-note color (overrides next-note style)
 - `fretboardFrets` (int): number of frets to display on the popup
 - `fretboardNoteRoundness` (float 0..1): note shape roundness (square -> circle)
 - `fretboardNoteSize` (float): note size multiplier
