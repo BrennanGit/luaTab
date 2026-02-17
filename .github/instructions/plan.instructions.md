@@ -119,6 +119,27 @@ Agents should NOT create a new task for each planned subtask. Keep subtasks insi
 Rule of thumb:
 - If the new task would take <30 minutes or touches <3 files, keep it as a subtask in the current task.
 
+## Rapid Iteration Policy (Single Task by Default)
+
+When the user is giving immediate feedback on recent implementation (e.g., “still seeing X”, “almost works, but…”), DO NOT create a new task per fix attempt.
+
+Instead:
+- Keep work inside the same active implementation task.
+- Add each attempt as a new subtask + execution-log entry.
+- Update acceptance criteria to reflect the latest observed issue.
+- Mark task done only after the iteration loop stabilizes.
+
+Create a separate bugfix task only when one or more are true:
+- The revisit happens in a separate session/time window (not immediate back-and-forth).
+- The bug affects a different subsystem than the active implementation.
+- The fix is independently shippable with its own acceptance criteria.
+- The user explicitly requests separate tracking items.
+
+If prior immediate-iteration tasks were split unnecessarily, prefer consolidation:
+- Merge execution notes into the original implementation task.
+- Keep one canonical task file for the implementation arc.
+- Remove superseded task entries from `.tracking/meta.md`.
+
 ### Plan-only Tasks
 If the user explicitly asks for a plan, create a docs/research task and stop after delivering the plan.
 Implementation should be a separate task only when the user requests it.
