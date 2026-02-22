@@ -357,13 +357,19 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
 
     local boundary_times = {}
     if item_bounds then
-      if item_bounds.current then
-        add_boundary_time(boundary_times, item_bounds.current.t0)
-        add_boundary_time(boundary_times, item_bounds.current.t1)
-      end
-      if item_bounds.next then
-        add_boundary_time(boundary_times, item_bounds.next.t0)
-        add_boundary_time(boundary_times, item_bounds.next.t1)
+      if item_bounds.times and #item_bounds.times > 0 then
+        for _, boundary_t in ipairs(item_bounds.times) do
+          add_boundary_time(boundary_times, boundary_t)
+        end
+      else
+        if item_bounds.current then
+          add_boundary_time(boundary_times, item_bounds.current.t0)
+          add_boundary_time(boundary_times, item_bounds.current.t1)
+        end
+        if item_bounds.next then
+          add_boundary_time(boundary_times, item_bounds.next.t0)
+          add_boundary_time(boundary_times, item_bounds.next.t1)
+        end
       end
     end
 

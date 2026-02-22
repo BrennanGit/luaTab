@@ -35,6 +35,13 @@ Format:
   Related: #MMM
 -->
 
+- [done] 041-looped-midi-repeat-note-extraction — Looped MIDI repeat note extraction (2026-02-22) — Owner: agent
+  Type: bugfix
+  Stability: experimental
+  Files: lib/midi.lua, lib/source.lua, lib/render.lua, luaTab.lua, planning/examples_and_testing.md, .tracking/041-looped-midi-repeat-note-extraction.md, .tracking/meta.md
+  Functions: extract_notes(), get_item_repeat_boundaries(), get_items_in_window(), rebuild_data(), draw_systems()
+  Related: #039
+
 - [done] 040-tracking-consolidation-and-iteration-policy — Tracking consolidation + iteration policy (2026-02-17) — Owner: agent
   Type: docs
   Stability: experimental

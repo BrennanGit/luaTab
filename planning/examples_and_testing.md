@@ -55,6 +55,12 @@ A build is acceptable when:
   - Thicker vertical line at the current item start/end
   - Upcoming item start line visible before reaching the boundary
 
+**L05: Looped item repeat boundary markers**
+- Setup: enable item looping on a MIDI item, extend to multiple repeats, and keep the repeat seams within visible bars
+- Expected:
+  - Item boundary bars appear at repeat seam times inside the item
+  - Existing item start/end boundary bars still render as before
+
 **U01: Update mode step**
 - Setup: set update mode to every 2 bars and play through 4 bars
 - Expected:
@@ -131,6 +137,12 @@ A build is acceptable when:
 - Expected:
   - Empty bars rendered before item start
   - Notes outside the trimmed item range are not shown
+
+**M06: Looped MIDI item repeat handling**
+- Setup: create a MIDI item, enable item looping, extend item to at least 2 repeats, place cursor in repeat 1 then repeat 2
+- Expected:
+  - Notes/events render in both repeats
+  - No regression to "first repeat only" extraction
 
 ### D) Fret Assignment / Constraints / Reduction
 

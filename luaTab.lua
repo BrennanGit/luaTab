@@ -1451,6 +1451,34 @@ local function get_cursor_time()
   return reaper.GetCursorPosition()
 end
 
+local function add_item_boundary_time(times, t)
+  if t == nil then
+    return
+  end
+  local eps = 1e-6
+  for _, existing in ipairs(times) do
+    if math.abs(existing - t) < eps then
+      return
+    end
+  end
+  times[#times + 1] = t
+end
+
+local function collect_item_boundary_times(items)
+  local times = {}
+  for _, item_info in ipairs(items or {}) do
+    add_item_boundary_time(times, item_info.t0)
+    add_item_boundary_time(times, item_info.t1)
+    for _, seam_t in ipairs(item_info.repeatBoundaries or {}) do
+      add_item_boundary_time(times, seam_t)
+    end
+  end
+  table.sort(times, function(a, b)
+    return a < b
+  end)
+  return times
+end
+
 local function rebuild_data(t)
   util.log_throttle("rebuild", 1.0, string.format("rebuild_data t=%.3f", t), "debug")
   state.layoutEpoch = (state.layoutEpoch or 0) + 1
@@ -1515,19 +1543,24 @@ local function rebuild_data(t)
     items_in_window = source.get_items_in_window(track, window_t0, window_t1)
   end
   if #items_in_window == 0 and take and state.itemBounds and state.itemBounds.current then
+    local current_item = state.itemBounds.current.item
+    local current_repeat_boundaries = source.get_item_repeat_boundaries(current_item, take, window_t0, window_t1)
     items_in_window = {
       {
-        item = state.itemBounds.current.item,
+        item = current_item,
         take = take,
         t0 = state.itemBounds.current.t0,
         t1 = state.itemBounds.current.t1,
+        repeatBoundaries = current_repeat_boundaries,
       },
     }
   end
 
+  state.itemBounds.times = collect_item_boundary_times(items_in_window)
+
   local notes = {}
   for _, item_info in ipairs(items_in_window) do
-    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1)
+    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1, item_info.item)
     for _, note in ipairs(item_notes) do
       notes[#notes + 1] = note
     end
