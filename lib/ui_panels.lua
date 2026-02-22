@@ -59,12 +59,12 @@ end
 -- where open_ref is a table like: { value = true }
 function Panels.window(ctx, open_ref, title, flags, draw_fn)
   if open_ref and open_ref.value == false then
-    dlog(("window skip title=%s open=false"):format(tostring(title)))
+    -- dlog(("window skip title=%s open=false"):format(tostring(title)))
     return false
   end
 
-  dlog(("window begin title=%s open_ref=%s"):format(
-    tostring(title), tostring(open_ref and open_ref.value)))
+  -- dlog(("window begin title=%s open_ref=%s"):format(
+  --   tostring(title), tostring(open_ref and open_ref.value)))
 
   local visible, open = reaper.ImGui_Begin(ctx, title, open_ref and open_ref.value or true, flags or 0)
 
