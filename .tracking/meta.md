@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-02-17 01:37 UTC
+- Last updated: 2026-04-24 UTC
 
 ---
 
@@ -34,6 +34,13 @@ Format:
   Functions: f1(), f2()
   Related: #MMM
 -->
+
+- [done] 045-readme-front-page — README front page (2026-04-24) — Owner: agent
+  Type: docs
+  Stability: experimental
+  Files: README.md, .tracking/045-readme-front-page.md, .tracking/meta.md
+  Functions: n/a
+  Related: #040
 
 - [done] 041-looped-midi-repeat-note-extraction — Looped MIDI repeat note extraction (2026-02-22) — Owner: agent
   Type: bugfix
