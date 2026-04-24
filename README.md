@@ -4,7 +4,8 @@ luaTab is a REAPER ReaScript that renders a live tablature HUD for MIDI material
 
 It is aimed at stringed-instrument workflows such as mandolin and guitar, with configurable tuning, chord reduction, fret assignment, and a play-aware tab display built with ReaImGui.
 
-<< IMAGE: main luaTab window showing the tab HUD following playback in REAPER >>
+<img width="1609" height="845" alt="image" src="https://github.com/user-attachments/assets/ef70c643-712d-4e40-9c37-4b7b321d4a52" />
+<em>Main luaTab window open in darkmode with fretboard and settings windows docked</em>
 
 ## What It Does
 
@@ -55,17 +56,12 @@ If you keep the repo somewhere else while developing, make sure REAPER is loadin
 
 - luaTab is designed as a toggle-style script. Running it again requests the current instance to quit cleanly.
 - The script stores settings in REAPER ExtState.
-- An emergency reset is available by creating a file named `luaTab.reset` in the script directory and then running the script once.
-
-<< IMAGE: REAPER action list showing luaTab.lua being loaded and run >>
 
 ## Usage
 
 Open the GUI using a REAPER action, toolbar button, or shortcut. The script looks for MIDI content on the selected track and renders a tab HUD from the notes around the play or edit cursor.
 
 ### GUI Layout
-
-<< IMAGE: annotated screenshot of the luaTab GUI showing the main tab HUD, settings window, fretboard, and color picker >>
 
 The main window shows the tab HUD which is a simple manuscript-style rendering of strings and frets.
 
@@ -78,7 +74,9 @@ Optional windows include (at the moment, this is subject to change as the UI evo
 - Color Picker: a development/debug window for adjusting the colors used by the UI and renderer.
 - User Presets: a window for saving and loading presets.
 
-Windowing is managed by ReaImGui, so panels can be arranged, resized, docked, or hidden freely. You can save a preferred layout by saving a preset, which captures window positions and sizes along with the rest of the selected settings.
+Windowing is managed by ReaImGui, so panels can be arranged, resized, docked, or hidden freely.
+
+You can save a preferred layout by saving a preset, which captures window positions and sizes along with the rest of the selected settings.
 
 > Note: Window positions can currently be saved, but docked vs undocked state is not restored. Saving a preset after docking a panel will preserve its position, but not its docked state.
 
@@ -95,7 +93,9 @@ Name the preset something descriptive of the tuning, like "Standard Guitar" or "
 
 The color scheme for the GUI elements. Added for development, but also useful for light/dark modes or high-contrast setups.
 
-<< IMAGE: example of the main tab HUD in a light mode vs dark mode preset >>
+<img width="1615" height="849" alt="image" src="https://github.com/user-attachments/assets/5b4c7157-67a8-4afe-9640-30454f2638ce" />
+<img width="1616" height="847" alt="image" src="https://github.com/user-attachments/assets/aa4f4ef5-cea1-4571-b006-e8109216644f" />
+<em>luaTab in standard light mode and in a modified dark mode with the strings set to red</em>
 
 #### Style
 
@@ -103,7 +103,9 @@ Windowing and playback behavior settings grouped together. This includes the num
 
 This is useful for switching between different working modes, such as a full-page manuscript view that "turns" at the end of a section or a long narrow layout that emphasizes continuous playback with the fretboard visible underneath.
 
-<< IMAGE: example of a preset with a long narrow tab window and the fretboard always visible below it >>
+<img width="2547" height="1207" alt="image" src="https://github.com/user-attachments/assets/d907a097-e0d5-43e1-99c6-fe1565673fdc" />
+<em>This shows a layout with the luaTab window docked into Reaper, set up with a continuous scroll and a fretboard </em>
+
 
 ### Tab Calculation
 
@@ -120,6 +122,8 @@ This project is primarily intended for personal use, but it is open source and c
 As a pure REAPER scripting project, the development workflow is centered around making changes in the code and then validating those changes directly in REAPER. There is no build step or test suite, so the feedback loop is very direct: change code, run in REAPER, see how it behaves.
 
 It is also an experiment in using structured planning and tracking documentation to keep work grounded and reduce context loss across sessions in an AI assisted project. The documentation files under `planning/` and `.tracking/` are intended to be an addressable source of truth for the project intent, architecture, configuration, testing, active work and task history.
+
+If you break the GUI, you can delete all settings and reset the plugin by creating a file name `luaTab.reset` in the script directory and starting the application.
 
 ### Recommended Loop
 
