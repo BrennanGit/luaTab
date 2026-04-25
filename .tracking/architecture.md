@@ -9,7 +9,7 @@ This document is an advisory, project-agnostic place to capture:
 
 It is intentionally lightweight. Keep it accurate and useful; avoid over-documenting.
 
-Last updated: 2026-02-16
+Last updated: 2026-04-25
 
 ---
 
@@ -33,7 +33,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ### Major Components / Modules
 - **luaTab.lua** — main loop, UI, caching, orchestration
-- **lib/config.lua** — defaults, ExtState load/save
+- **lib/config.lua** — defaults, table-driven ExtState load/save/reset
 - **lib/timeline.lua** — bar window + time signature data
 - **lib/layout.lua** — system wrapping and bar layout
 - **lib/midi.lua** — active take selection, note extraction, event grouping
@@ -48,8 +48,8 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - Resolve current and next MIDI item boundaries
 - Build bar window for prev/next range
 - Build systems layout based on window width
-- Extract MIDI notes in bar window clamped to item bounds and group into events
-- Solve fret assignments per event with span constraints
+- Extract MIDI notes in bar window clamped to item bounds, expanding looped items in either seconds or project quarter-note space, then group into events
+- Solve fret assignments per event with span constraints, using a fresh assignment state per rebuild
 - Render strings, barlines, time signatures, and frets
 
 ### External Dependencies / Integrations
@@ -92,6 +92,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ### Caching Strategy (If any)
 - Cache bar window and event assignments; rebuild on bar change or take change
+- `luaTab.lua` keeps rebuild orchestration split into bar expansion, item collection, note extraction, and fret assignment helpers so the cache invalidation path remains readable.
 
 ---
 
@@ -106,6 +107,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ### Unit / Pure Tests
 - frets and layout tests in tests/tests.lua
+- If no Lua interpreter is available outside REAPER, use static delimiter/diff checks locally and perform functional validation in REAPER.
 
 ### Integration / End-to-End
 - REAPER session with active MIDI editor take
@@ -120,3 +122,4 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - 2026-02-15 — Added optional fretboard popup rendering — #014
 - 2026-02-16 — Added user preset persistence and settings export flow — #027
 - 2026-02-16 — Status overlay rendered as a bottom bar — #024
+- 2026-04-25 — Refactored config persistence metadata, MIDI extraction helpers, render helpers, and rebuild orchestration — #046

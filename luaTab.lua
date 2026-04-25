@@ -66,7 +66,7 @@ local RESET_MARKER = script_dir .. "/luaTab.reset"
 
 local function reset_imgui_ini()
   if not ctx or not reaper.ImGui_GetIniFilename then
-    return false 
+    return false
   end
   local ini_path = reaper.ImGui_GetIniFilename(ctx)
   if ini_path and ini_path ~= "" then
@@ -136,7 +136,6 @@ local state = {
   systems = {},
   eventsByBar = {},
   takeId = nil,
-  assignmentState = frets.new_state(#cfg.tuning),
   hasMidiTake = false,
   statusMessage = nil,
   windowInitialized = false,
@@ -192,7 +191,6 @@ local state = {
   layoutEpoch = 0,
   systemsLayoutKey = nil,
   continuousOffsetPx = 0,
-  continuousOffsetTime = 0,
 }
 
 local default_tuning_presets = {
@@ -1479,6 +1477,103 @@ local function collect_item_boundary_times(items)
   return times
 end
 
+local function expand_bars_to_next_item(t, bars, current_bar, next_item)
+  if not (next_item and next_item.t0) then
+    return bars, current_bar
+  end
+  local last_bar = bars[#bars]
+  if not (last_bar and next_item.t0 > last_bar.t1) then
+    return bars, current_bar
+  end
+  local next_bar_idx = timeline.get_measure_index(next_item.t0)
+  if not (next_bar_idx and next_bar_idx > current_bar) then
+    return bars, current_bar
+  end
+  local needed_next = math.max(cfg.nextBars, next_bar_idx - current_bar)
+  if needed_next == cfg.nextBars then
+    return bars, current_bar
+  end
+  return timeline.build_bars(t, cfg.prevBars, needed_next, cfg.showFirstTimeSigInSystemGutter)
+end
+
+local function fallback_current_item_info(take, item_bounds, window_t0, window_t1)
+  if not (take and item_bounds and item_bounds.current) then
+    return nil
+  end
+  local current_item = item_bounds.current.item
+  return {
+    item = current_item,
+    take = take,
+    t0 = item_bounds.current.t0,
+    t1 = item_bounds.current.t1,
+    repeatBoundaries = source.get_item_repeat_boundaries(current_item, take, window_t0, window_t1),
+  }
+end
+
+local function collect_window_items(track, take, item_bounds, window_t0, window_t1)
+  local items = {}
+  if track and window_t0 and window_t1 then
+    items = source.get_items_in_window(track, window_t0, window_t1)
+  end
+  if #items == 0 then
+    local fallback = fallback_current_item_info(take, item_bounds, window_t0, window_t1)
+    if fallback then
+      items = { fallback }
+    end
+  end
+  return items
+end
+
+local function collect_window_notes(items_in_window, window_t0, window_t1)
+  local notes = {}
+  for _, item_info in ipairs(items_in_window) do
+    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1, item_info.item)
+    for _, note in ipairs(item_notes) do
+      notes[#notes + 1] = note
+    end
+  end
+  table.sort(notes, function(a, b)
+    if a.tStart == b.tStart then
+      return a.pitch > b.pitch
+    end
+    return a.tStart < b.tStart
+  end)
+  return notes
+end
+
+local function apply_fret_assignments(events, bars)
+  local events_by_bar = {}
+  local assignment_state = frets.new_state(#cfg.tuning)
+  local bar_idx = 1
+
+  for _, event in ipairs(events) do
+    while bar_idx <= #bars and event.t >= bars[bar_idx].t1 do
+      bar_idx = bar_idx + 1
+    end
+    local bar = bars[bar_idx]
+    if bar and event.t >= bar.t0 and event.t < bar.t1 then
+      local result = frets.assign_event(event, cfg, assignment_state)
+      local assignments = result.assignments or {}
+      if #assignments > 1 then
+        table.sort(assignments, function(a, b)
+          return a.string < b.string
+        end)
+      end
+      event.assignments = assignments
+      event.dropped = result.dropped
+      event.assignmentByPitch = {}
+      for _, assign in ipairs(assignments) do
+        event.assignmentByPitch[assign.pitch] = assign
+      end
+      events_by_bar[bar.idx] = events_by_bar[bar.idx] or {}
+      events_by_bar[bar.idx][#events_by_bar[bar.idx] + 1] = event
+      frets.advance_state(assignments, assignment_state)
+    end
+  end
+
+  return events_by_bar
+end
+
 local function rebuild_data(t)
   util.log_throttle("rebuild", 1.0, string.format("rebuild_data t=%.3f", t), "debug")
   state.layoutEpoch = (state.layoutEpoch or 0) + 1
@@ -1508,27 +1603,16 @@ local function rebuild_data(t)
     next = next_item,
   }
 
-  if next_item and next_item.t0 then
-    local last_bar = bars[#bars]
-    if last_bar and next_item.t0 > last_bar.t1 then
-      local next_bar_idx = timeline.get_measure_index(next_item.t0)
-      if next_bar_idx and next_bar_idx > current then
-        local needed_next = math.max(cfg.nextBars, next_bar_idx - current)
-        if needed_next ~= cfg.nextBars then
-          bars, current = timeline.build_bars(t, cfg.prevBars, needed_next, cfg.showFirstTimeSigInSystemGutter)
-        end
-      end
-    end
-  end
+  bars, current = expand_bars_to_next_item(t, bars, current, next_item)
 
   state.bars = bars
   state.lastBarIdx = current
 
   if not take then
-      state.eventsByBar = {}
-      state.hasMidiTake = false
-      state.statusMessage = "No MIDI detected. Select a track with a MIDI item under the cursor."
-      state.itemBounds = nil
+    state.eventsByBar = {}
+    state.hasMidiTake = false
+    state.statusMessage = "No MIDI detected. Select a track with a MIDI item under the cursor."
+    state.itemBounds = nil
     util.log_throttle("no_take", 1.5, "no active MIDI take", "info")
     return
   end
@@ -1538,72 +1622,13 @@ local function rebuild_data(t)
 
   local window_t0 = bars[1].t0
   local window_t1 = bars[#bars].t1
-  local items_in_window = {}
-  if track and window_t0 and window_t1 then
-    items_in_window = source.get_items_in_window(track, window_t0, window_t1)
-  end
-  if #items_in_window == 0 and take and state.itemBounds and state.itemBounds.current then
-    local current_item = state.itemBounds.current.item
-    local current_repeat_boundaries = source.get_item_repeat_boundaries(current_item, take, window_t0, window_t1)
-    items_in_window = {
-      {
-        item = current_item,
-        take = take,
-        t0 = state.itemBounds.current.t0,
-        t1 = state.itemBounds.current.t1,
-        repeatBoundaries = current_repeat_boundaries,
-      },
-    }
-  end
+  local items_in_window = collect_window_items(track, take, state.itemBounds, window_t0, window_t1)
 
   state.itemBounds.times = collect_item_boundary_times(items_in_window)
 
-  local notes = {}
-  for _, item_info in ipairs(items_in_window) do
-    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1, item_info.item)
-    for _, note in ipairs(item_notes) do
-      notes[#notes + 1] = note
-    end
-  end
-  table.sort(notes, function(a, b)
-    if a.tStart == b.tStart then
-      return a.pitch > b.pitch
-    end
-    return a.tStart < b.tStart
-  end)
+  local notes = collect_window_notes(items_in_window, window_t0, window_t1)
   local events = midi.group_events(notes, cfg.groupEpsilonMs / 1000)
-
-  local events_by_bar = {}
-  local assignment_state = frets.new_state(#cfg.tuning)
-  local bar_idx = 1
-
-  for _, event in ipairs(events) do
-    while bar_idx <= #bars and event.t >= bars[bar_idx].t1 do
-      bar_idx = bar_idx + 1
-    end
-    local bar = bars[bar_idx]
-    if bar and event.t >= bar.t0 and event.t < bar.t1 then
-      local result = frets.assign_event(event, cfg, assignment_state)
-      local assignments = result.assignments or {}
-      if #assignments > 1 then
-        table.sort(assignments, function(a, b)
-          return a.string < b.string
-        end)
-      end
-      event.assignments = assignments
-      event.dropped = result.dropped
-      local assignment_by_pitch = {}
-      for _, assign in ipairs(assignments) do
-        assignment_by_pitch[assign.pitch] = assign
-      end
-      event.assignmentByPitch = assignment_by_pitch
-      events_by_bar[bar.idx] = events_by_bar[bar.idx] or {}
-      events_by_bar[bar.idx][#events_by_bar[bar.idx] + 1] = event
-      frets.advance_state(assignments, assignment_state)
-    end
-  end
-
-  state.eventsByBar = events_by_bar
+  state.eventsByBar = apply_fret_assignments(events, bars)
   util.log_throttle("assigned", 1.0, string.format("assigned events=%d bars=%d", #events, #bars), "debug")
 end
 
@@ -1645,7 +1670,6 @@ end
 local function compute_continuous_draw_offset(t, config)
   local target = -compute_sweep_offset_px(t, config)
   state.continuousOffsetPx = target
-  state.continuousOffsetTime = now_time()
   return math.floor(target + 0.5)
 end
 
@@ -2977,7 +3001,6 @@ local function draw_ui()
       draw_offset_x = compute_continuous_draw_offset(t, cfg)
     else
       state.continuousOffsetPx = 0
-      state.continuousOffsetTime = now_time()
     end
 
     if state.hasMidiTake then

@@ -35,6 +35,13 @@ Format:
   Related: #MMM
 -->
 
+- [done] 046-codebase-refactor-pass — Codebase refactor pass (2026-04-25) — Owner: agent
+  Type: refactor
+  Stability: experimental
+  Files: lib/config.lua, lib/midi.lua, lib/render.lua, luaTab.lua, .tracking/architecture.md, planning/examples_and_testing.md, .tracking/046-codebase-refactor-pass.md, .tracking/meta.md
+  Functions: config.load(), config.save(), config.reset(), extract_notes(), render.draw_systems(), draw_ui(), rebuild_data()
+  Related: #039, #041
+
 - [done] 045-readme-front-page — README front page (2026-04-24) — Owner: agent
   Type: docs
   Stability: experimental

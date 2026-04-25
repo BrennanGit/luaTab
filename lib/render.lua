@@ -130,6 +130,21 @@ local function note_is_active(note, t, pre_note_off_sec)
   return note.tStart <= t and t < end_t
 end
 
+local function active_pitches_for_event(event, play_t, pre_note_off_sec)
+  if not play_t then
+    return nil
+  end
+  local active_by_pitch = {}
+  local has_active = false
+  for _, note in ipairs(event.notes or {}) do
+    if note_is_active(note, play_t, pre_note_off_sec) then
+      active_by_pitch[note.pitch] = true
+      has_active = true
+    end
+  end
+  return has_active and active_by_pitch or nil
+end
+
 local function build_fret_positions(count, length)
   local positions = { [0] = 0 }
   local denom = 1 - (2 ^ (-count / 12))
@@ -165,6 +180,100 @@ local function draw_fretboard_dot(draw_list, x, y, radius, color)
     reaper.ImGui_DrawList_AddCircleFilled(draw_list, x, y, radius, color)
   else
     reaper.ImGui_DrawList_AddRectFilled(draw_list, x - radius, y - radius, x + radius, y + radius, color, radius)
+  end
+end
+
+local function collect_boundary_times(item_bounds)
+  local boundary_times = {}
+  if not item_bounds then
+    return boundary_times
+  end
+  if item_bounds.times and #item_bounds.times > 0 then
+    for _, boundary_t in ipairs(item_bounds.times) do
+      add_boundary_time(boundary_times, boundary_t)
+    end
+    return boundary_times
+  end
+  if item_bounds.current then
+    add_boundary_time(boundary_times, item_bounds.current.t0)
+    add_boundary_time(boundary_times, item_bounds.current.t1)
+  end
+  if item_bounds.next then
+    add_boundary_time(boundary_times, item_bounds.next.t0)
+    add_boundary_time(boundary_times, item_bounds.next.t1)
+  end
+  return boundary_times
+end
+
+local function boundary_is_in_bar(boundary_t, bar, is_last_bar)
+  local in_range = boundary_t >= bar.t0 and boundary_t < bar.t1
+  return in_range or (is_last_bar and boundary_t == bar.t1)
+end
+
+local function draw_item_boundaries(draw_list, bar, bar_layout, staff, boundary_times, config, color, thickness, x_offset, is_last_bar)
+  for _, boundary_t in ipairs(boundary_times) do
+    if boundary_is_in_bar(boundary_t, bar, is_last_bar) then
+      local bx = boundary_x_for_bar(bar, bar_layout, boundary_t, config)
+      reaper.ImGui_DrawList_AddLine(draw_list, bx + x_offset, staff.y, bx + x_offset, staff.bottom, color, thickness)
+    end
+  end
+end
+
+local function draw_current_bar_marker(draw_list, bar, bar_layout, staff, config, color, x_offset, current_bar_idx)
+  if current_bar_idx == nil or bar.idx ~= current_bar_idx then
+    return
+  end
+  local bar_left = bar_layout.barLeft + x_offset
+  local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx + x_offset
+  reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_left, staff.y, bar_right, staff.bottom, color)
+end
+
+local function draw_bar_time_signature(draw_list, ctx, system, bar, bar_layout, staff, config, color, font_size, scale, x_offset, bar_index)
+  local ts_y = time_sig_y(staff, font_size, scale)
+  if bar_index == 1 and config.showFirstTimeSigInSystemGutter then
+    draw_time_sig(draw_list, ctx, math.floor(system.x0 + 6 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, color, font_size, scale)
+  elseif bar.showTimeSigHere then
+    draw_time_sig(draw_list, ctx, math.floor(bar_layout.prefix.x + 2 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, color, font_size, scale)
+  end
+end
+
+local function event_x(bar, bar_layout, event, x_offset)
+  local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
+  return math.floor(bar_layout.content.x + frac * bar_layout.content.w + x_offset + 0.5)
+end
+
+local function draw_event_assignments(draw_list, ctx, staff, event, x_pos, config, colors, font_size, active_by_pitch)
+  for _, note in ipairs(event.assignments or {}) do
+    local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
+    local text = tostring(note.fret)
+    local w, h = calc_text_size(ctx, text, font_size)
+    local text_x = x_pos - (w * 0.5)
+    local text_y = y - (h * 0.5)
+    local bg = colors.note_bg
+    if active_by_pitch and active_by_pitch[note.pitch] then
+      bg = colors.note_active_bg
+    end
+    draw_text_with_bg(draw_list, ctx, text_x, text_y, text, colors.text, bg, 2, font_size)
+  end
+end
+
+local function draw_dropped_pitches(draw_list, ctx, staff, bar_layout, dropped, color, font_size, x_offset)
+  for i, pitch in ipairs(dropped or {}) do
+    local y = staff.y - font_size * 0.8
+    local offset = (i - 1) * 8
+    draw_text_ex(draw_list, ctx, math.floor(bar_layout.prefix.x + offset + x_offset + 0.5), math.floor(y + 0.5), color, tostring(pitch), font_size)
+  end
+end
+
+local function draw_bar_events(draw_list, ctx, staff, bar, bar_layout, config, events, colors, font_sizes, play_t, pre_note_off_sec, x_offset)
+  for _, event in ipairs(events) do
+    local x_pos = event_x(bar, bar_layout, event, x_offset)
+    local active_by_pitch = nil
+    if config.tabHighlightCurrentNote then
+      active_by_pitch = active_pitches_for_event(event, play_t, pre_note_off_sec)
+    end
+    draw_event_assignments(draw_list, ctx, staff, event, x_pos, config, colors, font_sizes.fret, active_by_pitch)
+    draw_dropped_pitches(draw_list, ctx, staff, bar_layout, event.dropped, colors.dropped, font_sizes.dropped, x_offset)
   end
 end
 
@@ -344,6 +453,17 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
   local fret_scale = (config.fonts and config.fonts.fretScale) or 1.0
   local time_sig_scale = (config.fonts and config.fonts.timeSigScale) or 1.4
   local dropped_scale = (config.fonts and config.fonts.droppedScale) or 0.8
+  local colors = {
+    text = col_text,
+    dropped = col_dropped,
+    note_bg = col_note_bg,
+    note_active_bg = col_note_active_bg,
+  }
+  local font_sizes = {
+    fret = font_size * fret_scale,
+    dropped = font_size * dropped_scale,
+  }
+  local boundary_times = collect_boundary_times(item_bounds)
 
   for _, system in ipairs(systems) do
     local staff = system.staffRect
@@ -355,24 +475,6 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
       reaper.ImGui_DrawList_AddLine(draw_list, left, y, right, y, col_strings, 1.0)
     end
 
-    local boundary_times = {}
-    if item_bounds then
-      if item_bounds.times and #item_bounds.times > 0 then
-        for _, boundary_t in ipairs(item_bounds.times) do
-          add_boundary_time(boundary_times, boundary_t)
-        end
-      else
-        if item_bounds.current then
-          add_boundary_time(boundary_times, item_bounds.current.t0)
-          add_boundary_time(boundary_times, item_bounds.current.t1)
-        end
-        if item_bounds.next then
-          add_boundary_time(boundary_times, item_bounds.next.t0)
-          add_boundary_time(boundary_times, item_bounds.next.t1)
-        end
-      end
-    end
-
     for k, bar_layout in ipairs(system.barLayouts) do
       local x = bar_layout.barlineX + x_offset
       reaper.ImGui_DrawList_AddLine(draw_list, x, staff.y, x, staff.bottom, col_barlines, barline_thickness)
@@ -380,69 +482,14 @@ function render.draw_systems(draw_list, systems, config, events_by_bar, font_siz
       local bar = system.bars[k]
       if bar then
         if #boundary_times > 0 then
-          for _, boundary_t in ipairs(boundary_times) do
-            local is_last_bar = (k == #system.barLayouts)
-            local in_range = boundary_t >= bar.t0 and boundary_t < bar.t1
-            if not in_range and is_last_bar and boundary_t == bar.t1 then
-              in_range = true
-            end
-            if in_range then
-              local bx = boundary_x_for_bar(bar, bar_layout, boundary_t, config)
-              reaper.ImGui_DrawList_AddLine(draw_list, bx + x_offset, staff.y, bx + x_offset, staff.bottom, col_item, item_thickness)
-            end
-          end
+          draw_item_boundaries(draw_list, bar, bar_layout, staff, boundary_times, config, col_item, item_thickness, x_offset, k == #system.barLayouts)
         end
-        if current_bar_idx ~= nil and bar.idx == current_bar_idx then
-          local bar_left = bar_layout.barLeft + x_offset
-          local bar_right = bar_layout.barLeft + config.barPrefixPx + config.barContentPx + x_offset
-          reaper.ImGui_DrawList_AddRectFilled(draw_list, bar_left, staff.y, bar_right, staff.bottom, col_marker)
-        end
-        if k == 1 and config.showFirstTimeSigInSystemGutter then
-          local ts_y = time_sig_y(staff, font_size, time_sig_scale)
-          draw_time_sig(draw_list, ctx, math.floor(system.x0 + 6 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, col_text, font_size, time_sig_scale)
-        elseif bar.showTimeSigHere then
-          local ts_y = time_sig_y(staff, font_size, time_sig_scale)
-          draw_time_sig(draw_list, ctx, math.floor(bar_layout.prefix.x + 2 + x_offset + 0.5), math.floor(ts_y + 0.5), bar.num, bar.den, col_text, font_size, time_sig_scale)
-        end
+        draw_current_bar_marker(draw_list, bar, bar_layout, staff, config, col_marker, x_offset, current_bar_idx)
+        draw_bar_time_signature(draw_list, ctx, system, bar, bar_layout, staff, config, col_text, font_size, time_sig_scale, x_offset, k)
       end
 
       local events = events_by_bar[bar.idx] or {}
-      for _, event in ipairs(events) do
-        local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
-        local x_pos = math.floor(bar_layout.content.x + frac * bar_layout.content.w + x_offset + 0.5)
-        local active_by_pitch = nil
-        if config.tabHighlightCurrentNote and play_t then
-          active_by_pitch = {}
-          for _, note in ipairs(event.notes or {}) do
-            if note_is_active(note, play_t, pre_note_off_sec) then
-              active_by_pitch[note.pitch] = true
-            end
-          end
-        end
-
-        local assignments = event.assignments or {}
-
-        local sized_font = font_size * fret_scale
-        for _, note in ipairs(assignments) do
-          local y = string_y(staff.bottom, note.string, config.stringSpacingPx)
-          local text = tostring(note.fret)
-          local w, h = calc_text_size(ctx, text, sized_font)
-          local text_x = x_pos - (w * 0.5)
-          local text_y = y - (h * 0.5)
-          local bg = col_note_bg
-          if active_by_pitch and active_by_pitch[note.pitch] then
-            bg = col_note_active_bg
-          end
-          draw_text_with_bg(draw_list, ctx, text_x, text_y, text, col_text, bg, 2, sized_font)
-        end
-
-        local dropped_font = font_size * dropped_scale
-        for i, pitch in ipairs(event.dropped) do
-          local y = staff.y - dropped_font * 0.8
-          local offset = (i - 1) * 8
-          draw_text_ex(draw_list, ctx, math.floor(bar_layout.prefix.x + offset + x_offset + 0.5), math.floor(y + 0.5), col_dropped, tostring(pitch), dropped_font)
-        end
-      end
+      draw_bar_events(draw_list, ctx, staff, bar, bar_layout, config, events, colors, font_sizes, play_t, pre_note_off_sec, x_offset)
     end
 
     local bar_count = #system.barLayouts
