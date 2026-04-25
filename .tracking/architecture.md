@@ -39,6 +39,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - **lib/midi.lua** — active take selection, note extraction, event grouping
 - **lib/source.lua** — take resolution from selected track or MIDI editor
 - **lib/frets.lua** — candidate generation, solver, reduction
+- **lib/overrides.lua** — pure manual string override constraint handling
 - **lib/render.lua** — draw strings, barlines, notes, time signatures, and fretboard popup
 - **lib/util.lua** — helpers
 - **lib/ui_panels.lua** — dockable panel helpers with safe Begin/End pairing
@@ -49,7 +50,9 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - Build bar window for prev/next range
 - Build systems layout based on window width
 - Extract MIDI notes in bar window clamped to item bounds, expanding looped items in either seconds or project quarter-note space, then group into events
-- Solve fret assignments per event with span constraints, using a fresh assignment state per rebuild
+- Resolve saved manual string overrides for each event
+- Solve fret assignments per event with span constraints, forced-string constraints, and a fresh assignment state per rebuild
+- Collect rebuild-time diagnostics for source, filters, item/note/event counts, assignments, drops, and overrides
 - Render strings, barlines, time signatures, and frets
 
 ### External Dependencies / Integrations
@@ -72,6 +75,8 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 ### Data Models (If helpful)
 - `Bar` — idx, t0, t1, num, den, showTimeSigHere
 - `Event` — t, notes[], assignments[], dropped[]
+- `Manual override` — rounded event-time/pitch key -> forced string id; fret is derived from pitch and string tuning
+- `Diagnostics` — rebuild-time counters shown in an optional panel
 
 ---
 
@@ -79,6 +84,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 - Open strings do not contribute to fretted span
 - One note per string in an assignment
+- Manual overrides constrain solver candidates and must never replace a note with an arbitrary fret/pitch
 - Rebuild MIDI/event cache only on bar/take change
 - Top-level ImGui windows must be created via lib/ui_panels.lua helpers
 

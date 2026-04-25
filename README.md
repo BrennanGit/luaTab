@@ -111,15 +111,27 @@ This is useful for switching between different working modes, such as a full-pag
 
 The script extracts MIDI notes from items on the selected track and then uses a playability-oriented assignment pass to work out how they can be played on the current string set.
 
+Source and filter controls in Settings -> Tab let you keep the automatic selected-track/editor fallback or force selected-track-only or MIDI-editor-only mode. You can also filter to a single MIDI channel and ignore notes shorter than a configured length, which helps keep keyswitches, ornaments, and unrelated multi-channel material out of the tab view.
+
 The settings under `Settings -> Tab` let you adjust weights for things like avoiding string skips, preferring higher retained notes, or setting the timing distance within which notes should be considered part of the same chord. That makes it possible to tune the behavior for different instruments and material.
 
-Currently there is no way to override the automatic fret assignment with manual input, but that might be something to explore in the future.
+Manual string overrides are edited directly in the tab: click and drag an assigned fret number up or down to another valid string, and luaTab saves that string choice immediately. The fret number is always derived from the note pitch and target string tuning; overrides are stored as rounded event-time/pitch -> string id constraints and passed into the assignment solver. Use Settings > Tab > Clear string overrides to remove saved overrides.
+
+The Diagnostics panel, available from the panels menu, shows the active source, filters, visible bars/items, extracted notes, grouped events, assigned/dropped counts, and manual override counts. Dropped notes are labeled with note names in the tab view for easier musical reading.
 
 ## Development Workflow
 
 This project is primarily intended for personal use, but it is open source and contributions are welcome.
 
 As a pure REAPER scripting project, the development workflow is centered around making changes in the code and then validating those changes directly in REAPER. There is no build step or test suite, so the feedback loop is very direct: change code, run in REAPER, see how it behaves.
+
+Pure algorithm tests can be run locally with the bundled Lua 5.3 binary:
+
+```powershell
+.\lua53\lua53.exe tests\run.lua
+```
+
+These cover fret assignment, layout wrapping, MIDI grouping/filtering, and manual override behavior. REAPER is still required for source discovery, MIDI item extraction, ReaImGui rendering, and panel interaction validation.
 
 It is also an experiment in using structured planning and tracking documentation to keep work grounded and reduce context loss across sessions in an AI assisted project. The documentation files under `planning/` and `.tracking/` are intended to be an addressable source of truth for the project intent, architecture, configuration, testing, active work and task history.
 

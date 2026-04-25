@@ -261,7 +261,7 @@ local function get_next_track_take_after_time(t)
   return nil
 end
 
-function source.get_take(t)
+local function get_selected_track_source(t)
   local take, item, track = get_selected_track_take_at_time(t)
   if take then
     local current_info = build_item_info(item)
@@ -278,6 +278,10 @@ function source.get_take(t)
     return next_take, "selected_track_next", current_info, next_info, next_track
   end
 
+  return nil, "none", nil, nil, nil
+end
+
+local function get_editor_source(t)
   local editor_take = get_active_midi_editor_take()
   if editor_take then
     local editor_item = reaper.GetMediaItemTake_Item(editor_take)
@@ -292,6 +296,22 @@ function source.get_take(t)
   end
 
   return nil, "none", nil, nil, nil
+end
+
+function source.get_take(t, source_mode)
+  local mode = source_mode or "auto"
+  if mode == "selected_track" then
+    return get_selected_track_source(t)
+  end
+  if mode == "midi_editor" then
+    return get_editor_source(t)
+  end
+
+  local take, take_source, current_info, next_info, track = get_selected_track_source(t)
+  if take then
+    return take, take_source, current_info, next_info, track
+  end
+  return get_editor_source(t)
 end
 
 function source.get_items_in_window(track, t0, t1)

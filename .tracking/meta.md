@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-04-24 UTC
+- Last updated: 2026-04-25 UTC
 
 ---
 
@@ -41,6 +41,41 @@ Format:
   Files: lib/config.lua, lib/midi.lua, lib/render.lua, luaTab.lua, .tracking/architecture.md, planning/examples_and_testing.md, .tracking/046-codebase-refactor-pass.md, .tracking/meta.md
   Functions: config.load(), config.save(), config.reset(), extract_notes(), render.draw_systems(), draw_ui(), rebuild_data()
   Related: #039, #041
+
+- [done] 047-manual-fret-overrides — Manual fret overrides (2026-04-25) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: lib/overrides.lua, luaTab.lua, tests/run.lua, README.md, .tracking/architecture.md, .tracking/047-manual-fret-overrides.md, .tracking/meta.md
+  Functions: overrides.make_key(), overrides.apply_event_overrides(), load_manual_overrides(), save_manual_overrides(), apply_fret_assignments(), draw_manual_overrides_panel()
+  Related: #046
+
+- [done] 048-source-filter-controls — Source and MIDI filter controls (2026-04-25) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: lib/config.lua, lib/source.lua, lib/midi.lua, luaTab.lua, README.md, planning/configuration.md, .tracking/048-source-filter-controls.md, .tracking/meta.md
+  Functions: config.load(), config.save(), config.reset(), source.get_take(), extract_notes(), collect_window_notes(), draw_settings_panel()
+  Related: #047
+
+- [done] 049-local-regression-tests — Local regression tests (2026-04-25) — Owner: agent
+  Type: infra
+  Stability: experimental
+  Files: tests/run.lua, README.md, planning/examples_and_testing.md, .tracking/049-local-regression-tests.md, .tracking/meta.md
+  Functions: assert_eq(), frets.assign_event(), layout.build_systems(), midi.group_events(), overrides.apply_event_overrides()
+  Related: #047, #048
+
+- [done] 050-diagnostics-readability — Diagnostics and readability polish (2026-04-25) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: luaTab.lua, lib/midi.lua, lib/render.lua, tests/run.lua, README.md, .tracking/architecture.md, .tracking/050-diagnostics-readability.md, .tracking/meta.md
+  Functions: rebuild_data(), apply_fret_assignments(), draw_diagnostics_panel(), midi.pitch_name(), draw_systems()
+  Related: #047, #048, #049
+
+- [done] 051-drag-string-overrides — Drag string overrides (2026-04-25) — Owner: agent
+  Type: feature
+  Stability: experimental
+  Files: lib/overrides.lua, luaTab.lua, lib/config.lua, tests/run.lua, README.md, .tracking/architecture.md, .tracking/051-drag-string-overrides.md, .tracking/meta.md
+  Functions: overrides.make_key(), overrides.apply_event_overrides(), load_manual_overrides(), save_manual_overrides(), handle_note_override_drag(), draw_settings_panel()
+  Related: #047, #049, #050
 
 - [done] 045-readme-front-page — README front page (2026-04-24) — Owner: agent
   Type: docs

@@ -1,4 +1,5 @@
 local util = require("util")
+local midi = require("midi")
 
 local render = {}
 
@@ -260,8 +261,10 @@ end
 local function draw_dropped_pitches(draw_list, ctx, staff, bar_layout, dropped, color, font_size, x_offset)
   for i, pitch in ipairs(dropped or {}) do
     local y = staff.y - font_size * 0.8
-    local offset = (i - 1) * 8
-    draw_text_ex(draw_list, ctx, math.floor(bar_layout.prefix.x + offset + x_offset + 0.5), math.floor(y + 0.5), color, tostring(pitch), font_size)
+    local text = midi.pitch_name(pitch)
+    local text_w = calc_text_size(ctx, text, font_size)
+    local offset = (i - 1) * (text_w + 6)
+    draw_text_ex(draw_list, ctx, math.floor(bar_layout.prefix.x + offset + x_offset + 0.5), math.floor(y + 0.5), color, text, font_size)
   end
 end
 

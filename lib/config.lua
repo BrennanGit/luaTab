@@ -66,7 +66,10 @@ config.defaults = {
   showFirstTimeSigInSystemGutter = true,
   preloadSeconds = 2.0,
 
+  sourceMode = "auto",
+  channelFilter = 0,
   groupEpsilonMs = 8.0,
+  minNoteLenMs = 0,
 
   logEnabled = true,
   logVerbose = false,
@@ -113,7 +116,9 @@ local number_keys = {
   "maxFret",
   "maxFrettedSpan",
   "maxSimul",
+  "channelFilter",
   "groupEpsilonMs",
+  "minNoteLenMs",
   "updateStep",
   "antidelayBeats",
   "fretboardPreNoteOffMs",
@@ -143,6 +148,7 @@ local string_keys = {
   "colorPreset",
   "stylePreset",
   "updateMode",
+  "sourceMode",
   "fretboardMode",
   "fretboardNextStyle",
   "tuningPreset",
@@ -437,6 +443,14 @@ function config.reset(section)
     end
   end
   delete_value(ns, "userPresets.style.count")
+
+  local manual_override_count = read_number(ns, "manualOverrides.count", 0)
+  for i = 1, manual_override_count do
+    delete_value(ns, string.format("manualOverrides.%d.key", i))
+    delete_value(ns, string.format("manualOverrides.%d.string", i))
+    delete_value(ns, string.format("manualOverrides.%d.fret", i))
+  end
+  delete_value(ns, "manualOverrides.count")
 end
 
 return config

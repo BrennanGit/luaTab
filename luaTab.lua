@@ -58,6 +58,7 @@ local midi = require("midi")
 local source = require("source")
 local frets = require("frets")
 local render = require("render")
+local overrides = require("overrides")
 
 local ctx
 local cleaned = false
@@ -148,6 +149,7 @@ local state = {
     settings = { value = false },
     colorPicker = { value = false },
     userPresets = { value = false },
+    diagnostics = { value = false },
   },
   fretboardPanelOpen = cfg.fretboardMode ~= "hidden",
   lastHeartbeat = 0,
@@ -167,7 +169,11 @@ local state = {
     fretboard = {},
     colorPicker = {},
     userPresets = {},
+    diagnostics = {},
   },
+  manualOverrides = {},
+  overrideDrag = nil,
+  diagnostics = {},
   pendingLayout = nil,
   presetSave = {
     open = false,
@@ -327,6 +333,7 @@ local layout_panel_keys = {
   "fretboard",
   "colorPicker",
   "userPresets",
+  "diagnostics",
 }
 
 local function build_default_layout_preset()
@@ -497,6 +504,45 @@ local function delete_color_ext(section, key)
   delete_value_ext(section, key .. ".g")
   delete_value_ext(section, key .. ".b")
   delete_value_ext(section, key .. ".a")
+end
+
+local function load_manual_overrides(section)
+  local entries = {}
+  local count = read_number_ext(section, "manualOverrides.count", 0)
+  for i = 1, count do
+    local key = read_string_ext(section, string.format("manualOverrides.%d.key", i), "")
+    local string_index = read_number_ext(section, string.format("manualOverrides.%d.string", i), nil)
+    if key ~= "" and string_index ~= nil then
+      entries[key] = { string = string_index }
+    end
+  end
+  return entries
+end
+
+local function sorted_override_keys(entries)
+  local keys = {}
+  for key in pairs(entries or {}) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  return keys
+end
+
+local function save_manual_overrides(section, entries)
+  local old_count = read_number_ext(section, "manualOverrides.count", 0)
+  local keys = sorted_override_keys(entries)
+  write_value_ext(section, "manualOverrides.count", #keys)
+  for i, key in ipairs(keys) do
+    local entry = entries[key]
+    write_value_ext(section, string.format("manualOverrides.%d.key", i), key)
+    write_value_ext(section, string.format("manualOverrides.%d.string", i), entry.string)
+    delete_value_ext(section, string.format("manualOverrides.%d.fret", i))
+  end
+  for i = #keys + 1, old_count do
+    delete_value_ext(section, string.format("manualOverrides.%d.key", i))
+    delete_value_ext(section, string.format("manualOverrides.%d.string", i))
+    delete_value_ext(section, string.format("manualOverrides.%d.fret", i))
+  end
 end
 
 local function normalize_preset_name(name)
@@ -785,6 +831,7 @@ end
 local user_tuning_presets = load_user_tuning_presets(SECTION)
 local user_color_presets = load_user_color_presets(SECTION)
 local user_style_presets = load_user_style_presets(SECTION)
+state.manualOverrides = load_manual_overrides(SECTION)
 local tuning_presets = {}
 local color_presets = {}
 local style_presets = {}
@@ -1401,7 +1448,9 @@ local function clamp_config(cfg)
   cfg.maxFret = util.clamp(cfg.maxFret, 1, 48)
   cfg.maxFrettedSpan = util.clamp(cfg.maxFrettedSpan, 0, 24)
   cfg.maxSimul = util.clamp(cfg.maxSimul, 1, #cfg.tuning)
+  cfg.channelFilter = util.clamp(cfg.channelFilter or 0, 0, 16)
   cfg.groupEpsilonMs = util.clamp(cfg.groupEpsilonMs, 0, 100)
+  cfg.minNoteLenMs = util.clamp(cfg.minNoteLenMs or 0, 0, 1000)
   cfg.systemGutterPx = util.clamp(cfg.systemGutterPx, 0, 300)
   cfg.barPrefixPx = util.clamp(cfg.barPrefixPx, 0, 300)
   cfg.barContentPx = util.clamp(cfg.barContentPx, 10, 600)
@@ -1427,6 +1476,10 @@ local function clamp_config(cfg)
   local fb_styles = { outline = true, outline_shade = true, outline_ramp = true }
   if not fb_styles[cfg.fretboardNextStyle] then
     cfg.fretboardNextStyle = "outline"
+  end
+  local source_modes = { auto = true, selected_track = true, midi_editor = true }
+  if not source_modes[cfg.sourceMode] then
+    cfg.sourceMode = "auto"
   end
   cfg.fretboardHighlightNextNote = cfg.fretboardHighlightNextNote == true
   cfg.tabHighlightCurrentNote = cfg.tabHighlightCurrentNote == true
@@ -1527,7 +1580,7 @@ end
 local function collect_window_notes(items_in_window, window_t0, window_t1)
   local notes = {}
   for _, item_info in ipairs(items_in_window) do
-    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1, item_info.item)
+    local item_notes = midi.extract_notes(item_info.take, window_t0, window_t1, item_info.t0, item_info.t1, item_info.item, cfg)
     for _, note in ipairs(item_notes) do
       notes[#notes + 1] = note
     end
@@ -1545,6 +1598,13 @@ local function apply_fret_assignments(events, bars)
   local events_by_bar = {}
   local assignment_state = frets.new_state(#cfg.tuning)
   local bar_idx = 1
+  local stats = {
+    events = 0,
+    assigned = 0,
+    dropped = 0,
+    overridesApplied = 0,
+    overridesSkipped = 0,
+  }
 
   for _, event in ipairs(events) do
     while bar_idx <= #bars and event.t >= bars[bar_idx].t1 do
@@ -1552,6 +1612,7 @@ local function apply_fret_assignments(events, bars)
     end
     local bar = bars[bar_idx]
     if bar and event.t >= bar.t0 and event.t < bar.t1 then
+      local override_result = overrides.apply_event_overrides(event, cfg, state.manualOverrides)
       local result = frets.assign_event(event, cfg, assignment_state)
       local assignments = result.assignments or {}
       if #assignments > 1 then
@@ -1561,9 +1622,24 @@ local function apply_fret_assignments(events, bars)
       end
       event.assignments = assignments
       event.dropped = result.dropped
+      event.overridesApplied = override_result.overridesApplied
+      event.overridesSkipped = override_result.overridesSkipped
+      stats.events = stats.events + 1
+      stats.assigned = stats.assigned + #assignments
+      stats.dropped = stats.dropped + #(event.dropped or {})
+      stats.overridesApplied = stats.overridesApplied + #(event.overridesApplied or {})
+      stats.overridesSkipped = stats.overridesSkipped + #(event.overridesSkipped or {})
       event.assignmentByPitch = {}
       for _, assign in ipairs(assignments) do
         event.assignmentByPitch[assign.pitch] = assign
+        assign.overrideKey = assign.overrideKey or overrides.make_key(event, assign.pitch)
+        if event.forcedStringsByPitch and event.forcedStringsByPitch[assign.pitch] == assign.string then
+          assign.manualOverride = true
+        end
+      end
+      event.overrideKeysByPitch = {}
+      for _, note in ipairs(event.notes or {}) do
+        event.overrideKeysByPitch[note.pitch] = overrides.make_key(event, note.pitch)
       end
       events_by_bar[bar.idx] = events_by_bar[bar.idx] or {}
       events_by_bar[bar.idx][#events_by_bar[bar.idx] + 1] = event
@@ -1571,6 +1647,7 @@ local function apply_fret_assignments(events, bars)
     end
   end
 
+  state.assignmentStats = stats
   return events_by_bar
 end
 
@@ -1584,13 +1661,14 @@ local function rebuild_data(t)
     state.eventsByBar = {}
     state.hasMidiTake = false
     state.statusMessage = "No bars in window"
+    state.diagnostics = { bars = 0, source = "none", message = state.statusMessage }
     util.log_throttle("no_bars", 1.0, "no bars in window", "debug")
     state.bars = bars
     state.lastBarIdx = current
     return
   end
 
-  local take, take_source, current_item, next_item, track = source.get_take(t)
+  local take, take_source, current_item, next_item, track = source.get_take(t, cfg.sourceMode)
   local take_id = take and tostring(take) or nil
   if take_id ~= state.takeId then
     state.takeId = take_id
@@ -1613,6 +1691,12 @@ local function rebuild_data(t)
     state.hasMidiTake = false
     state.statusMessage = "No MIDI detected. Select a track with a MIDI item under the cursor."
     state.itemBounds = nil
+    state.diagnostics = {
+      bars = #bars,
+      source = take_source or "none",
+      sourceMode = cfg.sourceMode or "auto",
+      message = state.statusMessage,
+    }
     util.log_throttle("no_take", 1.5, "no active MIDI take", "info")
     return
   end
@@ -1629,6 +1713,23 @@ local function rebuild_data(t)
   local notes = collect_window_notes(items_in_window, window_t0, window_t1)
   local events = midi.group_events(notes, cfg.groupEpsilonMs / 1000)
   state.eventsByBar = apply_fret_assignments(events, bars)
+  local assignment_stats = state.assignmentStats or {}
+  state.diagnostics = {
+    source = take_source,
+    sourceMode = cfg.sourceMode or "auto",
+    channelFilter = cfg.channelFilter or 0,
+    minNoteLenMs = cfg.minNoteLenMs or 0,
+    bars = #bars,
+    items = #items_in_window,
+    notes = #notes,
+    events = #events,
+    assigned = assignment_stats.assigned or 0,
+    dropped = assignment_stats.dropped or 0,
+    overridesApplied = assignment_stats.overridesApplied or 0,
+    overridesSkipped = assignment_stats.overridesSkipped or 0,
+    windowStart = window_t0,
+    windowEnd = window_t1,
+  }
   util.log_throttle("assigned", 1.0, string.format("assigned events=%d bars=%d", #events, #bars), "debug")
 end
 
@@ -1674,6 +1775,9 @@ local function compute_continuous_draw_offset(t, config)
 end
 
 local function handle_bar_click(ctx, systems, config, draw_offset_x)
+  if state.overrideDrag then
+    return
+  end
   if not (reaper.ImGui_IsMouseClicked and reaper.ImGui_GetMousePos and reaper.ImGui_IsWindowHovered) then
     return
   end
@@ -1708,6 +1812,125 @@ local function handle_bar_click(ctx, systems, config, draw_offset_x)
       end
     end
   end
+end
+
+local function tab_string_y(staff_bottom, string_index, spacing)
+  return staff_bottom - (string_index - 1) * spacing
+end
+
+local function note_text_size(ctx, text, font_size)
+  if reaper.ImGui_CalcTextSize then
+    local width, height = reaper.ImGui_CalcTextSize(ctx, text)
+    return width, height
+  end
+  return #text * font_size * 0.6, font_size
+end
+
+local function fret_for_pitch_on_string(pitch, string_index, config)
+  local string_info = config.tuning and config.tuning[string_index]
+  if not string_info then
+    return nil
+  end
+  local fret = pitch - string_info.open
+  if fret < 0 or fret > (config.maxFret or fret) then
+    return nil
+  end
+  return fret
+end
+
+local function string_from_y(staff, y, config)
+  local spacing = config.stringSpacingPx or 1
+  local raw = ((staff.bottom - y) / spacing) + 1
+  return util.clamp(math.floor(raw + 0.5), 1, #config.tuning)
+end
+
+local function begin_note_override_drag(hit)
+  if not hit then
+    return
+  end
+  state.overrideDrag = hit
+  state.overrideDrag.savedString = state.manualOverrides[hit.key] and state.manualOverrides[hit.key].string or hit.sourceString
+end
+
+local function capture_note_drag_clicks(ctx, systems, config, events_by_bar, font_size, draw_offset_x)
+  if state.overrideDrag then
+    return false
+  end
+
+  if not (reaper.ImGui_SetCursorScreenPos and reaper.ImGui_GetCursorScreenPos and reaper.ImGui_InvisibleButton and reaper.ImGui_IsItemClicked) then
+    return false
+  end
+
+  local x_offset = draw_offset_x or 0
+  local fret_scale = (config.fonts and config.fonts.fretScale) or 1.0
+  local note_font = (font_size or 12) * fret_scale
+  local button_flags = reaper.ImGui_ButtonFlags_MouseButtonLeft and reaper.ImGui_ButtonFlags_MouseButtonLeft() or 0
+  local cursor_x, cursor_y = reaper.ImGui_GetCursorScreenPos(ctx)
+  for _, system in ipairs(systems or {}) do
+    local staff = system.staffRect
+    for k, bar_layout in ipairs(system.barLayouts or {}) do
+      local bar = system.bars[k]
+      local events = bar and (events_by_bar[bar.idx] or {}) or {}
+      for _, event in ipairs(events) do
+        local frac = (event.t - bar.t0) / (bar.t1 - bar.t0)
+        local note_x = math.floor(bar_layout.content.x + frac * bar_layout.content.w + x_offset + 0.5)
+        for _, assign in ipairs(event.assignments or {}) do
+          local text = tostring(assign.fret)
+          local text_w, text_h = note_text_size(ctx, text, note_font)
+          local y = tab_string_y(staff.bottom, assign.string, config.stringSpacingPx)
+          local half_w = math.max(8, text_w * 0.5 + 5)
+          local half_h = math.max(8, text_h * 0.5 + 5)
+          reaper.ImGui_SetCursorScreenPos(ctx, note_x - half_w, y - half_h)
+          reaper.ImGui_InvisibleButton(ctx, string.format("##NoteDrag_%s", overrides.make_key(event, assign.pitch)), half_w * 2, half_h * 2, button_flags)
+          if reaper.ImGui_IsItemClicked(ctx, 0) then
+            begin_note_override_drag({
+              key = overrides.make_key(event, assign.pitch),
+              pitch = assign.pitch,
+              sourceString = assign.string,
+              staff = staff,
+            })
+            reaper.ImGui_SetCursorScreenPos(ctx, cursor_x, cursor_y)
+            return true
+          end
+        end
+      end
+    end
+  end
+
+  reaper.ImGui_SetCursorScreenPos(ctx, cursor_x, cursor_y)
+  return false
+end
+
+local function save_string_override(key, string_index)
+  state.manualOverrides[key] = { string = string_index }
+  save_manual_overrides(SECTION, state.manualOverrides)
+  state.lastUpdateKey = nil
+  rebuild_data(get_cursor_time())
+end
+
+local function handle_note_override_drag(ctx, systems, config, events_by_bar, font_size, draw_offset_x)
+  if not (reaper.ImGui_GetMousePos and reaper.ImGui_IsMouseDown) then
+    return false
+  end
+  local mouse_x, mouse_y = reaper.ImGui_GetMousePos(ctx)
+  local captured_click = capture_note_drag_clicks(ctx, systems, config, events_by_bar, font_size, draw_offset_x)
+
+  local drag = state.overrideDrag
+  if not drag then
+    return captured_click
+  end
+
+  if reaper.ImGui_IsMouseDown(ctx, 0) then
+    local target_string = string_from_y(drag.staff, mouse_y, config)
+    if target_string ~= drag.savedString and fret_for_pitch_on_string(drag.pitch, target_string, config) ~= nil then
+      drag.savedString = target_string
+      save_string_override(drag.key, target_string)
+    end
+    return true
+  end
+
+  state.overrideDrag = nil
+  return true
 end
 
 local function color_to_hex(color, include_alpha)
@@ -2173,6 +2396,50 @@ local function draw_user_presets_panel()
   end)
 end
 
+local function draw_diagnostics_panel()
+  if state.panels.diagnostics.value then
+    apply_pending_layout("diagnostics", "diagnosticsWindowInitialized")
+    if not state.diagnosticsWindowInitialized then
+      reaper.ImGui_SetNextWindowSize(ctx, 460, 320, reaper.ImGui_Cond_FirstUseEver())
+      if reaper.ImGui_SetNextWindowDockID and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowDockID(ctx, 0, reaper.ImGui_Cond_FirstUseEver())
+      end
+      if reaper.ImGui_SetNextWindowPos and reaper.ImGui_Cond_FirstUseEver then
+        reaper.ImGui_SetNextWindowPos(ctx, 220, 240, reaper.ImGui_Cond_FirstUseEver())
+      end
+      state.diagnosticsWindowInitialized = true
+    end
+  end
+
+  Panels.window(ctx, state.panels.diagnostics, "Diagnostics", 0, function(ctx)
+    update_panel_layout("diagnostics")
+    local diag = state.diagnostics or {}
+    reaper.ImGui_Text(ctx, string.format("Source: %s", diag.source or state.takeSource or "none"))
+    reaper.ImGui_Text(ctx, string.format("Source mode: %s", diag.sourceMode or cfg.sourceMode or "auto"))
+    local channel = diag.channelFilter or cfg.channelFilter or 0
+    local channel_text = channel == 0 and "all" or tostring(channel)
+    reaper.ImGui_Text(ctx, string.format("Channel: %s", channel_text))
+    reaper.ImGui_Text(ctx, string.format("Min note length: %.1f ms", diag.minNoteLenMs or cfg.minNoteLenMs or 0))
+    reaper.ImGui_Separator(ctx)
+    reaper.ImGui_Text(ctx, string.format("Bars: %d", diag.bars or #(state.bars or {})))
+    reaper.ImGui_Text(ctx, string.format("Items: %d", diag.items or 0))
+    reaper.ImGui_Text(ctx, string.format("Notes: %d", diag.notes or 0))
+    reaper.ImGui_Text(ctx, string.format("Events: %d", diag.events or 0))
+    reaper.ImGui_Text(ctx, string.format("Assigned notes: %d", diag.assigned or 0))
+    reaper.ImGui_Text(ctx, string.format("Dropped notes: %d", diag.dropped or 0))
+    reaper.ImGui_Text(ctx, string.format("Manual overrides applied: %d", diag.overridesApplied or 0))
+    reaper.ImGui_Text(ctx, string.format("Manual overrides skipped: %d", diag.overridesSkipped or 0))
+    if diag.windowStart and diag.windowEnd then
+      reaper.ImGui_Separator(ctx)
+      reaper.ImGui_Text(ctx, string.format("Window: %.3f - %.3f", diag.windowStart, diag.windowEnd))
+    end
+    if diag.message then
+      reaper.ImGui_Separator(ctx)
+      reaper.ImGui_Text(ctx, diag.message)
+    end
+  end)
+end
+
 local function format_settings_export(cfg)
   local function fmt(value)
     local t = type(value)
@@ -2238,7 +2505,10 @@ local function format_settings_export(cfg)
   lines[#lines + 1] = string.format("  reducePreferHighest = %s,", fmt(cfg.reducePreferHighest))
   lines[#lines + 1] = string.format("  showFirstTimeSigInSystemGutter = %s,", fmt(cfg.showFirstTimeSigInSystemGutter))
   lines[#lines + 1] = string.format("  preloadSeconds = %s,", fmt(cfg.preloadSeconds))
+  lines[#lines + 1] = string.format("  sourceMode = %s,", fmt(cfg.sourceMode))
+  lines[#lines + 1] = string.format("  channelFilter = %s,", fmt(cfg.channelFilter))
   lines[#lines + 1] = string.format("  groupEpsilonMs = %s,", fmt(cfg.groupEpsilonMs))
+  lines[#lines + 1] = string.format("  minNoteLenMs = %s,", fmt(cfg.minNoteLenMs))
   lines[#lines + 1] = string.format("  logEnabled = %s,", fmt(cfg.logEnabled))
   lines[#lines + 1] = string.format("  logVerbose = %s,", fmt(cfg.logVerbose))
   lines[#lines + 1] = string.format("  logPath = %s,", fmt(cfg.logPath or ""))
@@ -2289,6 +2559,7 @@ local function reset_config_to_defaults()
   user_tuning_presets = load_user_tuning_presets(SECTION)
   user_color_presets = load_user_color_presets(SECTION)
   user_style_presets = load_user_style_presets(SECTION)
+  state.manualOverrides = load_manual_overrides(SECTION)
   rebuild_preset_lists()
   state.colorHex = {}
   state.logPathBuf = nil
@@ -2299,12 +2570,14 @@ local function reset_config_to_defaults()
   state.fretboardWindowInitialized = false
   state.colorPickerWindowInitialized = false
   state.userPresetsWindowInitialized = false
+  state.diagnosticsWindowInitialized = false
   state.fretboardFocused = false
   state.panels.fretboard.value = cfg.fretboardMode ~= "hidden"
   state.fretboardPanelOpen = state.panels.fretboard.value
   state.panels.settings.value = false
   state.panels.colorPicker.value = false
   state.panels.userPresets.value = false
+  state.panels.diagnostics.value = false
   state.colorPickerKey = "background"
   apply_settings_change()
 end
@@ -2428,11 +2701,41 @@ local function draw_settings_panel()
       if reaper.ImGui_Button(ctx, "Save current as preset") then
         open_preset_save("tuning")
       end
+      reaper.ImGui_SameLine(ctx)
+      if reaper.ImGui_Button(ctx, "Clear string overrides") then
+        state.manualOverrides = {}
+        save_manual_overrides(SECTION, state.manualOverrides)
+        settings_changed = true
+      end
+
+      reaper.ImGui_Separator(ctx)
+      reaper.ImGui_Text(ctx, "MIDI source")
+      local source_modes = { "auto", "selected_track", "midi_editor" }
+      local source_labels = "Auto\0Selected track\0MIDI editor\0"
+      local source_index = 0
+      for i, mode in ipairs(source_modes) do
+        if mode == cfg.sourceMode then
+          source_index = i - 1
+          break
+        end
+      end
+      reaper.ImGui_SetNextItemWidth(ctx, 180)
+      rv, source_index = reaper.ImGui_Combo(ctx, "Source mode", source_index, source_labels)
+      if rv then
+        cfg.sourceMode = source_modes[source_index + 1] or "auto"
+        settings_changed = true
+      end
+      reaper.ImGui_SetNextItemWidth(ctx, 120)
+      rv, cfg.channelFilter = edit_int(ctx, "Channel (0 = all)", cfg.channelFilter or 0, 0, 16)
+      settings_changed = settings_changed or rv
 
       reaper.ImGui_Separator(ctx)
       reaper.ImGui_Text(ctx, "Grouping")
       reaper.ImGui_SetNextItemWidth(ctx, 160)
       rv, cfg.groupEpsilonMs = edit_float(ctx, "Group epsilon (ms)", cfg.groupEpsilonMs, 0, 100)
+      settings_changed = settings_changed or rv
+      reaper.ImGui_SetNextItemWidth(ctx, 160)
+      rv, cfg.minNoteLenMs = edit_float(ctx, "Min note length (ms)", cfg.minNoteLenMs or 0, 0, 1000)
       settings_changed = settings_changed or rv
 
       reaper.ImGui_Separator(ctx)
@@ -2798,10 +3101,13 @@ local function draw_ui()
   local now = now_time()
   local t = get_cursor_time()
   local current_bar = timeline.get_measure_index(t)
-  local take = select(1, source.get_take(t))
+  local take = select(1, source.get_take(t, cfg.sourceMode))
   local take_id = take and tostring(take) or nil
 
   local main_flags = 0
+  if state.overrideDrag and reaper.ImGui_WindowFlags_NoMove then
+    main_flags = main_flags | reaper.ImGui_WindowFlags_NoMove()
+  end
   Panels.window(ctx, state.panels.main, "luaTab", main_flags, function(ctx)
     update_panel_layout("main")
     Panels.dockspace(ctx, "luaTabDock")
@@ -3016,7 +3322,10 @@ local function draw_ui()
         state.systemsLayoutKey = layout_key
       end
       render.draw_systems(draw_list, state.systems, cfg, state.eventsByBar, font_size, ctx, current_bar, state.itemBounds, t, draw_offset_x)
-      handle_bar_click(ctx, state.systems, cfg, draw_offset_x)
+      local note_drag_handled = handle_note_override_drag(ctx, state.systems, cfg, state.eventsByBar, font_size, draw_offset_x)
+      if not note_drag_handled then
+        handle_bar_click(ctx, state.systems, cfg, draw_offset_x)
+      end
     end
 
     do
@@ -3132,6 +3441,11 @@ local function draw_ui()
               state.panels.userPresets.value = v
             end
 
+            changed, v = reaper.ImGui_MenuItem(ctx, "Diagnostics", nil, state.panels.diagnostics.value)
+            if changed then
+              state.panels.diagnostics.value = v
+            end
+
             reaper.ImGui_EndPopup(ctx)
           end
         end
@@ -3196,6 +3510,7 @@ local function draw_ui()
   draw_settings_panel()
   draw_color_picker_panel()
   draw_user_presets_panel()
+  draw_diagnostics_panel()
 
   local fretboard_panel_changed = draw_fretboard_panel(t, current_bar)
   if fretboard_panel_changed then
