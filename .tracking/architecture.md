@@ -33,7 +33,9 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 
 ### Major Components / Modules
 - **luaTab.lua** — main loop, UI, caching, orchestration
-- **lib/config.lua** — defaults, table-driven ExtState load/save/reset
+- **lib/config.lua** — defaults, metadata-driven ExtState load/save/reset, settings export
+- **lib/store.lua** — typed ExtState primitives (numbers, bools, strings, colors)
+- **lib/presets.lua** — built-in preset data plus user preset and manual-override persistence
 - **lib/timeline.lua** — bar window + time signature data
 - **lib/layout.lua** — system wrapping and bar layout
 - **lib/midi.lua** — active take selection, note extraction, event grouping
@@ -42,7 +44,7 @@ Render a live, play-aware tablature HUD for MIDI content around the play/edit cu
 - **lib/overrides.lua** — pure manual string override constraint handling
 - **lib/render.lua** — draw strings, barlines, notes, time signatures, and fretboard popup
 - **lib/util.lua** — helpers
-- **lib/ui_panels.lua** — dockable panel helpers with safe Begin/End pairing
+- **lib/ui_panels.lua** — dockable panel window/dockspace helpers with safe Begin/End pairing
 
 ### Data Flow (Narrative)
 - Get cursor time (play or edit)

@@ -100,16 +100,16 @@ Settings are shown in a popup grouped into:
 - `weights.highFret` (0..10): penalize high frets
 
 ### 2.8 Reduction policy
-Fixed choice:
-- `reducePreferHighest = true` (keep highest notes when chord unplayable)
+Fixed behavior: when a chord is unplayable, the solver keeps the highest notes
+(see `frets.lua` reduction). There is no configuration knob for this.
 
 UI option (later):
 - switch between “prefer highest” and “prefer lowest”
 
-### 2.9 Preloading (V1)
-- `preloadSeconds` (float): threshold before item end to preload next item
-- `maxCachedItems` (int): LRU cap
-- `mergeOverlaps` (bool): how to handle overlapping items (default true)
+### 2.9 Preloading (not implemented)
+Planned keys (`preloadSeconds`, `maxCachedItems`, `mergeOverlaps`) were never
+wired up and are not part of the current config schema. Multi-item preloading
+remains a non-goal for now (see architecture.md).
 
 ### 2.10 Fretboard popup
 - `fretboardMode` (enum): hidden | current | next_notes | next_bars

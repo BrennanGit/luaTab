@@ -156,12 +156,6 @@ local function build_fret_positions(count, length)
   return positions
 end
 
-local function fret_center(positions, fret, length)
-  local start = positions[fret] or length
-  local finish = positions[fret + 1] or length
-  return (start + finish) * 0.5
-end
-
 local function draw_fretboard_note(draw_list, x, y, size, fill_color, outline_color, roundness, outline_thickness)
   local half = size * 0.5
   local x1 = x - half
