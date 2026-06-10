@@ -2121,12 +2121,19 @@ local function draw_main_overlay(ctx, fallback_draw_list)
   end
 
   local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
-  local min_x, min_y = reaper.ImGui_GetWindowContentRegionMin(ctx)
-  local max_x, max_y = reaper.ImGui_GetWindowContentRegionMax(ctx)
-  local content_x0 = win_x + min_x
-  local content_y0 = win_y + min_y
-  local content_x1 = win_x + max_x
-  local content_y1 = win_y + max_y
+  local win_w, win_h = reaper.ImGui_GetWindowSize(ctx)
+  local content_x0 = win_x
+  local content_y0 = win_y
+  local content_x1 = win_x + win_w
+  local content_y1 = win_y + win_h
+  if reaper.ImGui_GetWindowContentRegionMin and reaper.ImGui_GetWindowContentRegionMax then
+    local min_x, min_y = reaper.ImGui_GetWindowContentRegionMin(ctx)
+    local max_x, max_y = reaper.ImGui_GetWindowContentRegionMax(ctx)
+    content_x0 = win_x + min_x
+    content_y0 = win_y + min_y
+    content_x1 = win_x + max_x
+    content_y1 = win_y + max_y
+  end
 
   local button_size = reaper.ImGui_GetFrameHeight(ctx) * 2 + 6
   local gear_pad = 10
@@ -2510,4 +2517,3 @@ end
 
 rebuild_data(get_cursor_time())
 reaper.defer(draw_ui)
-
