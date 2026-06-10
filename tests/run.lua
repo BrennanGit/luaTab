@@ -188,6 +188,108 @@ test("midi grouping uses epsilon to collect staggered chord starts", function()
   assert_eq(#events[2].notes, 1, "second event size")
 end)
 
+-- Persistence tests: stub the REAPER ExtState API with a plain table so
+-- store/config/presets round-trips run outside REAPER.
+local function install_reaper_stub()
+  local ext = {}
+  _G.reaper = {
+    HasExtState = function(section, key)
+      return ext[section] ~= nil and ext[section][key] ~= nil
+    end,
+    GetExtState = function(section, key)
+      return (ext[section] and ext[section][key]) or ""
+    end,
+    SetExtState = function(section, key, value)
+      ext[section] = ext[section] or {}
+      ext[section][key] = tostring(value)
+    end,
+    DeleteExtState = function(section, key)
+      if ext[section] then
+        ext[section][key] = nil
+      end
+    end,
+  }
+  return ext
+end
+
+install_reaper_stub()
+local store = require("store")
+local config = require("config")
+local presets = require("presets")
+
+test("store primitives round-trip numbers, bools, strings and colors", function()
+  install_reaper_stub()
+  store.write("s", "num", 4.5)
+  assert_eq(store.read_number("s", "num", 0), 4.5, "number round-trip")
+  store.write("s", "flag", true)
+  assert_eq(store.read_bool("s", "flag", false), true, "bool round-trip")
+  store.write("s", "name", "drop D")
+  assert_eq(store.read_string("s", "name", ""), "drop D", "string round-trip")
+  store.write_color("s", "col", { 0.25, 0.5, 0.75, 1 })
+  local col = store.read_color("s", "col", nil)
+  assert_eq(col[2], 0.5, "color component round-trip")
+  store.delete_color("s", "col")
+  assert_eq(store.read_color("s", "col", nil), nil, "color deleted")
+  assert_eq(store.read_number("s", "missing", 7), 7, "fallback on missing key")
+end)
+
+test("config save/load/reset round-trips through ExtState", function()
+  install_reaper_stub()
+  local defaults = config.load("luaTab")
+  local cfg = config.load("luaTab")
+  cfg.maxFret = 17
+  cfg.followPlay = not defaults.followPlay
+  cfg.colors.background = { 0.1, 0.2, 0.3, 0.9 }
+  config.save(cfg, "luaTab")
+  local loaded = config.load("luaTab")
+  assert_eq(loaded.maxFret, 17, "number persisted")
+  assert_eq(loaded.followPlay, cfg.followPlay, "bool persisted")
+  assert_eq(loaded.colors.background[3], 0.3, "color persisted")
+  config.reset("luaTab")
+  local after_reset = config.load("luaTab")
+  assert_eq(after_reset.maxFret, defaults.maxFret, "reset restores default")
+end)
+
+test("user presets and overrides persist through ExtState", function()
+  install_reaper_stub()
+  presets.save_user_tunings("luaTab", {
+    { name = "Test tune", tuning = { { name = "G", open = 55 }, { name = "D", open = 62 } } },
+  })
+  local tunings = presets.load_user_tunings("luaTab")
+  assert_eq(#tunings, 1, "tuning preset count")
+  assert_eq(tunings[1].name, "Test tune", "tuning preset name")
+  assert_eq(tunings[1].tuning[2].open, 62, "tuning preset string")
+
+  presets.save_overrides("luaTab", { ["k1"] = { string = 3 } })
+  local loaded = presets.load_overrides("luaTab")
+  assert_eq(loaded["k1"].string, 3, "override round-trip")
+
+  presets.clear_all("luaTab")
+  assert_eq(#presets.load_user_tunings("luaTab"), 0, "tunings cleared")
+  assert_eq(next(presets.load_overrides("luaTab")), nil, "overrides cleared")
+end)
+
+test("preset name conflict detection is case-insensitive against builtins", function()
+  local user_list = { { name = "My Set" } }
+  assert_true(presets.name_conflict("tuning", "guitar (eadgbe)", user_list), "builtin conflict")
+  assert_true(presets.name_conflict("tuning", "my set", user_list), "user conflict")
+  assert_true(not presets.name_conflict("tuning", "totally new", user_list), "no conflict")
+end)
+
+test("config export emits valid Lua with current values", function()
+  install_reaper_stub()
+  local cfg = config.load("luaTab")
+  cfg.maxFret = 19
+  local exported = config.export_lua(cfg)
+  local env = {}
+  local chunk = assert(load(exported, "export", "t", env), "export should be loadable Lua")
+  chunk()
+  local result = env.luaTab_settings
+  assert_eq(result.maxFret, 19, "exported number")
+  assert_eq(type(result.colors.background), "table", "exported color table")
+  assert_eq(#result.tuning, #cfg.tuning, "exported tuning length")
+end)
+
 local failures = 0
 for _, item in ipairs(tests) do
   io.write("test ", item.name, " ... ")

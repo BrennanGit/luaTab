@@ -7,22 +7,10 @@ util._log = {
   last = {},
 }
 
-function util.script_dir()
-  local source = debug.getinfo(1, "S").source
-  if source:sub(1, 1) == "@" then
-    source = source:sub(2)
-  end
-  return source:match("^(.*)[/\\].-$") or "."
-end
-
 function util.clamp(value, min_value, max_value)
   if value < min_value then return min_value end
   if value > max_value then return max_value end
   return value
-end
-
-function util.round(value)
-  return math.floor(value + 0.5)
 end
 
 function util.copy_table(tbl)

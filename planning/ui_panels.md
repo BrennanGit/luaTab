@@ -29,7 +29,7 @@ state.panels = {
 }
 ```
 
-Use Panels.menu_toggle to bind menu items to these flags.
+Toggle these flags from the gear-button panels menu in `draw_main_overlay` (luaTab.lua).
 
 ## Main Window + Dockspace
 
@@ -67,14 +67,14 @@ Avoid using a modal for settings, fretboard, or any panel that should dock.
 
 ## Scope Helpers
 
-Use the Panels wrappers for Begin/End pairs in menus, tabs, children, and tables:
+`ui_panels.lua` intentionally exposes a small surface:
 
-- Panels.menu_bar()
-- Panels.menu()
-- Panels.tab_bar()
-- Panels.tab_item()
-- Panels.child()
-- Panels.table()
+- Panels.window() — Begin/End-safe window wrapper
+- Panels.dockspace() — dockspace inside the main window
+- Panels.end_frame_check() — per-frame Begin/End balance check
+
+Other scope wrappers (menus, tabs, children, tables) were removed because the
+app never used them; add wrappers back only when a caller exists.
 
 ## Debugging
 

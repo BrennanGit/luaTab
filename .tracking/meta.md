@@ -1,7 +1,7 @@
 # Tracking Meta Index
 
 - Index created: {YYYY-MM-DD}
-- Last updated: 2026-04-25 UTC
+- Last updated: 2026-06-10 UTC
 
 ---
 
@@ -34,6 +34,13 @@ Format:
   Functions: f1(), f2()
   Related: #MMM
 -->
+
+- [done] 052-deslopify-refactor — Deslopify refactor pass (2026-06-10) — Owner: agent
+  Type: refactor
+  Stability: stable
+  Files: lib/store.lua, lib/presets.lua, lib/config.lua, lib/ui_panels.lua, lib/util.lua, luaTab.lua, tests/run.lua, .tracking/architecture.md, planning/configuration.md, planning/ui_panels.md
+  Functions: store.*, presets.*, config.load(), config.save(), config.reset(), config.export_lua(), setup_panel_window(), color_setting_row(), push_theme_colors(), draw_main_overlay(), handle_keyboard_passthrough(), draw_ui()
+  Related: #046, #049
 
 - [done] 046-codebase-refactor-pass — Codebase refactor pass (2026-04-25) — Owner: agent
   Type: refactor
