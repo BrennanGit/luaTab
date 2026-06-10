@@ -64,17 +64,15 @@ Settings are shown in a popup grouped into:
 - `nextBars` (int): number of bars after current to render
 
 ### 2.3 MIDI source selection
-MVP:
-- `sourceMode = "active_midi_editor"`
-
-V1:
-- `sourceMode = "selected_track_under_cursor"`
-- `sourceTrackIndex` (int) or “selected track”
-- `channelFilter` (int or “all”)
+- `sourceMode` (enum): `auto` | `selected_track` | `midi_editor`
+  - `auto`: selected-track item under/after cursor, then active MIDI editor fallback
+  - `selected_track`: selected-track item under/after cursor only
+  - `midi_editor`: active MIDI editor take only
+- `channelFilter` (int): `0` = all channels, `1..16` = one-based MIDI channel filter
 
 ### 2.4 Event grouping
 - `groupEpsilonMs` (float): notes starting within this time are considered simultaneous
-- `minNoteLenMs` (float, optional): ignore ultra-short notes (ornaments) if needed
+- `minNoteLenMs` (float): ignore ultra-short notes (ornaments) if needed; `0` disables filtering
 
 ### 2.4.1 Logging
 - `logPath` (string): log file path

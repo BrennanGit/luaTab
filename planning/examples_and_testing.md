@@ -206,6 +206,11 @@ Why:
 - Pure tests debug faster than interactive REAPER sessions.
 - Eliminates “is this a REAPER API bug or our logic?”
 
+Current local fallback:
+- Run `.\\lua53\\lua53.exe tests\\run.lua` from the repository root for pure Lua coverage of fret assignment, layout wrapping, MIDI grouping/filtering, and manual override behavior.
+- If a Lua interpreter is not available on PATH, run static delimiter/duplicate-function checks plus focused diff review before REAPER validation.
+- Still treat REAPER as required validation for config persistence, looped MIDI extraction, ImGui docking, and rendering behavior.
+
 ### 3.2 Synthetic MIDI in REAPER (Controlled Items)
 
 Goal: validate `midi extraction` and end-to-end behavior.

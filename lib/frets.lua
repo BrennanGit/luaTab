@@ -1,13 +1,15 @@
 local frets = {}
 
-local function build_candidates(pitch, tuning, max_fret)
+local function build_candidates(pitch, tuning, max_fret, forced_string)
   local candidates = {}
   for s = 1, #tuning do
-    local open = tuning[s].open
-    if pitch >= open then
-      local fret = pitch - open
-      if fret <= max_fret then
-        candidates[#candidates + 1] = { string = s, fret = fret }
+    if not forced_string or forced_string == s then
+      local open = tuning[s].open
+      if pitch >= open then
+        local fret = pitch - open
+        if fret <= max_fret then
+          candidates[#candidates + 1] = { string = s, fret = fret }
+        end
       end
     end
   end
@@ -104,10 +106,11 @@ local function dfs_assign(pitches, candidates, idx, used_strings, current, best,
   return best
 end
 
-local function solve_assignment(pitches, config, state)
+local function solve_assignment(pitches, config, state, forced_strings_by_pitch)
   local candidates = {}
   for i, pitch in ipairs(pitches) do
-    candidates[i] = build_candidates(pitch, config.tuning, config.maxFret)
+    local forced_string = forced_strings_by_pitch and forced_strings_by_pitch[pitch] or nil
+    candidates[i] = build_candidates(pitch, config.tuning, config.maxFret, forced_string)
     if #candidates[i] == 0 then
       return nil
     end
@@ -142,6 +145,25 @@ local function generate_subsets(pitches, size)
   return results
 end
 
+local function subset_contains_forced_pitches(subset, forced_strings_by_pitch)
+  if not forced_strings_by_pitch then
+    return true
+  end
+
+  local keep = {}
+  for _, pitch in ipairs(subset) do
+    keep[pitch] = true
+  end
+
+  for pitch in pairs(forced_strings_by_pitch) do
+    if not keep[pitch] then
+      return false
+    end
+  end
+
+  return true
+end
+
 function frets.assign_event(event, config, state)
   local pitches = {}
   for _, note in ipairs(event.notes) do
@@ -154,8 +176,9 @@ function frets.assign_event(event, config, state)
   end
 
   local best = nil
+  local forced_strings_by_pitch = event.forcedStringsByPitch
   if #pitches <= config.maxSimul then
-    best = solve_assignment(pitches, config, state)
+    best = solve_assignment(pitches, config, state, forced_strings_by_pitch)
   end
 
   if not best then
@@ -164,7 +187,10 @@ function frets.assign_event(event, config, state)
       local chosen = nil
 
       for _, subset in ipairs(subsets) do
-        local candidate = solve_assignment(subset, config, state)
+        local candidate = nil
+        if subset_contains_forced_pitches(subset, forced_strings_by_pitch) then
+          candidate = solve_assignment(subset, config, state, forced_strings_by_pitch)
+        end
         if candidate then
           local top_pitch = subset[1]
           local sum_pitch = 0

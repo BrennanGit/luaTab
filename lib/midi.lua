@@ -1,9 +1,22 @@
 local util = require("util")
 local midi = {}
 
+local note_names = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }
+
+function midi.pitch_name(pitch)
+  local value = tonumber(pitch)
+  if not value then
+    return tostring(pitch)
+  end
+  value = math.floor(value + 0.5)
+  local name = note_names[(value % 12) + 1]
+  local octave = math.floor(value / 12) - 1
+  return string.format("%s%d", name, octave)
+end
+
 -- MIDI take discovery moved to lib/source.lua
 
-local function append_note(notes, start_time, end_time, pitch, vel, window_start, window_end, clip_t0, clip_t1)
+local function append_note(notes, start_time, end_time, pitch, vel, channel, window_start, window_end, clip_t0, clip_t1)
   if start_time < window_start or start_time >= window_end then
     return
   end
@@ -18,7 +31,56 @@ local function append_note(notes, start_time, end_time, pitch, vel, window_start
     tEnd = end_time,
     pitch = pitch,
     vel = vel,
+    channel = channel,
   }
+end
+
+function midi.note_passes_filters(note, filters)
+  if not note then
+    return false
+  end
+  filters = filters or {}
+  local channel_filter = tonumber(filters.channelFilter or 0) or 0
+  if channel_filter > 0 then
+    local note_channel = note.channel
+    if note_channel == nil then
+      note_channel = note.chan
+    end
+    if note_channel == nil or (note_channel + 1) ~= channel_filter then
+      return false
+    end
+  end
+
+  local min_len_ms = tonumber(filters.minNoteLenMs or 0) or 0
+  if min_len_ms > 0 and note.start_time and note.end_time then
+    local length_ms = (note.end_time - note.start_time) * 1000
+    if length_ms < min_len_ms then
+      return false
+    end
+  end
+
+  return true
+end
+
+local function clipped_window(t0, t1, clip_t0, clip_t1)
+  local window_start = t0
+  local window_end = t1
+  if clip_t0 ~= nil then
+    window_start = math.max(window_start, clip_t0)
+  end
+  if clip_t1 ~= nil then
+    window_end = math.min(window_end, clip_t1)
+  end
+  return window_start, window_end
+end
+
+local function sort_notes(notes)
+  table.sort(notes, function(a, b)
+    if a.tStart == b.tStart then
+      return a.pitch > b.pitch
+    end
+    return a.tStart < b.tStart
+  end)
 end
 
 local function get_loop_period(take, item)
@@ -50,15 +112,45 @@ local function get_loop_period(take, item)
   return src_len / playrate, "sec"
 end
 
-function midi.extract_notes(take, t0, t1, clip_t0, clip_t1, item)
-  local window_start = t0
-  local window_end = t1
-  if clip_t0 ~= nil then
-    window_start = math.max(window_start, clip_t0)
+local function append_unlooped_note(notes, note, window_start, window_end, clip_t0, clip_t1)
+  append_note(notes, note.start_time, note.end_time, note.pitch, note.vel, note.channel, window_start, window_end, clip_t0, clip_t1)
+end
+
+local function append_sec_loop_notes(notes, note, loop_period, window_start, window_end, clip_t0, clip_t1)
+  local k_start = math.floor((window_start - note.start_time) / loop_period) - 1
+  local k_end = math.floor((window_end - note.start_time) / loop_period) + 1
+  for k = k_start, k_end do
+    local shifted_start_time = note.start_time + (k * loop_period)
+    local shifted_end_time = note.end_time + (k * loop_period)
+    append_note(notes, shifted_start_time, shifted_end_time, note.pitch, note.vel, note.channel, window_start, window_end, clip_t0, clip_t1)
   end
-  if clip_t1 ~= nil then
-    window_end = math.min(window_end, clip_t1)
+end
+
+local function append_qn_loop_notes(notes, take, note, loop_period, window_qn_start, window_qn_end, window_start, window_end, clip_t0, clip_t1)
+  -- QN-length sources repeat in project quarter-note space so tempo changes keep the loop musically aligned.
+  local start_qn = reaper.MIDI_GetProjQNFromPPQPos(take, note.startppq)
+  local end_qn = reaper.MIDI_GetProjQNFromPPQPos(take, note.endppq)
+  local k_start = math.floor((window_qn_start - start_qn) / loop_period) - 1
+  local k_end = math.floor((window_qn_end - start_qn) / loop_period) + 1
+  for k = k_start, k_end do
+    local shifted_start_qn = start_qn + (k * loop_period)
+    local shifted_end_qn = end_qn + (k * loop_period)
+    local shifted_start_time = reaper.TimeMap2_QNToTime(0, shifted_start_qn)
+    local shifted_end_time = reaper.TimeMap2_QNToTime(0, shifted_end_qn)
+    append_note(notes, shifted_start_time, shifted_end_time, note.pitch, note.vel, note.channel, window_start, window_end, clip_t0, clip_t1)
   end
+end
+
+local function append_looped_note(notes, take, note, loop_period, loop_domain, window_qn_start, window_qn_end, window_start, window_end, clip_t0, clip_t1)
+  if loop_domain == "qn" then
+    append_qn_loop_notes(notes, take, note, loop_period, window_qn_start, window_qn_end, window_start, window_end, clip_t0, clip_t1)
+  else
+    append_sec_loop_notes(notes, note, loop_period, window_start, window_end, clip_t0, clip_t1)
+  end
+end
+
+function midi.extract_notes(take, t0, t1, clip_t0, clip_t1, item, filters)
+  local window_start, window_end = clipped_window(t0, t1, clip_t0, clip_t1)
   if window_end <= window_start then
     util.log(string.format("extract_notes empty clip=%.3f..%.3f", window_start, window_end), "debug")
     return {}
@@ -77,43 +169,30 @@ function midi.extract_notes(take, t0, t1, clip_t0, clip_t1, item)
   end
 
   for i = 0, note_count - 1 do
-    local _, _, _, startppq, endppq, _, pitch, vel = reaper.MIDI_GetNote(take, i)
-    local start_time = reaper.MIDI_GetProjTimeFromPPQPos(take, startppq)
-    local end_time = reaper.MIDI_GetProjTimeFromPPQPos(take, endppq)
+    local _, _, _, startppq, endppq, channel, pitch, vel = reaper.MIDI_GetNote(take, i)
+    local note = {
+      startppq = startppq,
+      endppq = endppq,
+      start_time = reaper.MIDI_GetProjTimeFromPPQPos(take, startppq),
+      end_time = reaper.MIDI_GetProjTimeFromPPQPos(take, endppq),
+      channel = channel,
+      pitch = pitch,
+      vel = vel,
+    }
+
+    if not midi.note_passes_filters(note, filters) then
+      goto continue
+    end
 
     if has_loop then
-      if loop_domain == "qn" then
-        local start_qn = reaper.MIDI_GetProjQNFromPPQPos(take, startppq)
-        local end_qn = reaper.MIDI_GetProjQNFromPPQPos(take, endppq)
-        local k_start = math.floor((window_qn_start - start_qn) / loop_period) - 1
-        local k_end = math.floor((window_qn_end - start_qn) / loop_period) + 1
-        for k = k_start, k_end do
-          local shifted_start_qn = start_qn + (k * loop_period)
-          local shifted_end_qn = end_qn + (k * loop_period)
-          local shifted_start_time = reaper.TimeMap2_QNToTime(0, shifted_start_qn)
-          local shifted_end_time = reaper.TimeMap2_QNToTime(0, shifted_end_qn)
-          append_note(notes, shifted_start_time, shifted_end_time, pitch, vel, window_start, window_end, clip_t0, clip_t1)
-        end
-      else
-        local k_start = math.floor((window_start - start_time) / loop_period) - 1
-        local k_end = math.floor((window_end - start_time) / loop_period) + 1
-        for k = k_start, k_end do
-          local shifted_start_time = start_time + (k * loop_period)
-          local shifted_end_time = end_time + (k * loop_period)
-          append_note(notes, shifted_start_time, shifted_end_time, pitch, vel, window_start, window_end, clip_t0, clip_t1)
-        end
-      end
+      append_looped_note(notes, take, note, loop_period, loop_domain, window_qn_start, window_qn_end, window_start, window_end, clip_t0, clip_t1)
     else
-      append_note(notes, start_time, end_time, pitch, vel, window_start, window_end, clip_t0, clip_t1)
+      append_unlooped_note(notes, note, window_start, window_end, clip_t0, clip_t1)
     end
+    ::continue::
   end
 
-  table.sort(notes, function(a, b)
-    if a.tStart == b.tStart then
-      return a.pitch > b.pitch
-    end
-    return a.tStart < b.tStart
-  end)
+  sort_notes(notes)
 
   util.log(string.format("extract_notes count=%d window=%.3f..%.3f", #notes, window_start, window_end), "debug")
   return notes
